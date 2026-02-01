@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "sans-serif";
+  --font-branding: "Google Sans", "DM Sans", "sans-serif";
+}
