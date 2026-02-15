@@ -1,29 +1,32 @@
 import React, { useState } from 'react';
 import Login from './Login';
-import Dashboard from './Dashboard';
+import Dashboard from './dashboard';
+import AdminDashboard from './admindashboard'; // Siguraduhin na naka-import ito
 
 function App() {
-  // State: false = nasa Login page, true = nasa Dashboard
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // Ang state ngayon ay pwedeng: null (hindi pa login), 'user', o 'admin'
+  const [userRole, setUserRole] = useState(null);
 
-  // Function na ipapasa natin sa Login component
-  const handleLogin = () => {
-    setIsAuthenticated(true); // Ito ang magti-trigger ng switch
+  // Bagong handleLogin na tumatanggap ng role galing sa Login.jsx
+  const handleLogin = (role) => {
+    setUserRole(role); // Itatakda nito kung 'user' o 'admin'
   };
 
-  // Function na ipapasa natin sa Dashboard component
   const handleLogout = () => {
-    setIsAuthenticated(false); // Babalik sa login screen
+    setUserRole(null); // Babalik sa login screen
   };
 
   return (
     <div>
-      {isAuthenticated ? (
-        // Kapag TRUE, ipakita ang Dashboard (at ipasa ang logout function)
-        <Dashboard onLogout={handleLogout} />
-      ) : (
-        // Kapag FALSE, ipakita ang Login (at ipasa ang login function)
+      {!userRole ? (
+        // 1. Kapag NULL, ipakita ang Login page
         <Login onLogin={handleLogin} />
+      ) : userRole === 'admin' ? (
+        // 2. Kapag 'admin', ipakita ang Admin Dashboard
+        <AdminDashboard onLogout={handleLogout} />
+      ) : (
+        // 3. Kapag 'user' (o kahit ano pa), ipakita ang regular Dashboard
+        <Dashboard onLogout={handleLogout} />
       )}
     </div>
   );

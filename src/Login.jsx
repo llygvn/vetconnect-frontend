@@ -25,19 +25,26 @@ const Login = ({ onLogin }) => {
   const handleAuthAction = (e) => {
     e.preventDefault();
     let hasError = false;
-    if (!formData.email) hasError = true;
-    if (!formData.password) hasError = true;
-
-    if (hasError) {
+    
+    // Basic validation
+    if (!formData.email || !formData.password) {
       alert("Please fill in the fields");
       return;
     }
 
     if (isLogin) {
-      onLogin(); 
+      // --- ADMIN LOGIN LOGIC ---
+      // Dito natin chine-check kung admin ang nag-log in
+      if (formData.email === "admin@vetconnect.com" && formData.password === "admin123") {
+        onLogin('admin'); // Ipapasa ang 'admin' role sa App.jsx
+      } else {
+        // Default ay 'user' role
+        onLogin('user'); 
+      }
     } else {
+      // Signup logic
       alert("Account created successfully! Logging you in...");
-      onLogin(); 
+      onLogin('user'); 
     }
   };
 
@@ -50,22 +57,18 @@ const Login = ({ onLogin }) => {
         {/* LEFT SIDE (FORM) */}
         <div className="w-full md:w-1/2 p-8 md:p-16 flex flex-col justify-center relative">
           
-          {/* LOGO - Adjusted Size */}
+          {/* LOGO */}
           <div className="flex items-center gap-3 md:gap-4 mb-8 md:mb-12">
             <img src={logoImg} alt="VetConnect Logo" className="w-12 h-12 md:w-16 md:h-16 object-contain" />
-            
-            {/* PINALAKI KO NA DITO: text-3xl (mobile) at md:text-5xl (desktop) */}
             <span className="text-3xl md:text-4xl font-medium tracking-tight text-[#099FAD] font-branding">
               VetConnect
             </span>
           </div>
 
-          {/* Header - Adjusted Margin Bottom to be TIGHT (mb-2) */}
           <h2 className="text-3xl md:text-4xl font-regular text-gray-800 mb-2">
             {isLogin ? 'Welcome back!' : 'Create account'}
           </h2>
           
-          {/* Subtext - Adjusted Margin Bottom (mb-8) for space before Toggle */}
           <p className="text-base md:text-lg font-light text-gray-500 mb-8">
             {isLogin ? "Let's take care of your pet today." : "Start managing your pet's care today."}
           </p>
@@ -73,6 +76,7 @@ const Login = ({ onLogin }) => {
           {/* Toggle Switch */}
           <div className="flex bg-white border border-gray-200 rounded-full p-1 md:p-1.5 mb-6 md:mb-8 w-full max-w-md mx-auto md:mx-0">
             <button
+              type="button"
               onClick={() => toggleMode(true)}
               className={`cursor-pointer flex-1 py-2.5 md:py-3 px-6 rounded-full text-sm md:text-base font-regular transition-all duration-200 ${
                 isLogin ? 'bg-[#099FAD] text-white shadow-md' : 'text-gray-500 hover:text-gray-700'
@@ -81,6 +85,7 @@ const Login = ({ onLogin }) => {
               Log in
             </button>
             <button
+              type="button"
               onClick={() => toggleMode(false)}
               className={`cursor-pointer flex-1 py-2.5 md:py-3 px-6 rounded-full text-sm md:text-base font-regular transition-all duration-200 ${
                 !isLogin ? 'bg-[#099FAD] text-white shadow-md' : 'text-gray-500 hover:text-gray-700'
@@ -93,7 +98,6 @@ const Login = ({ onLogin }) => {
           {/* FORM */}
           <form className="w-full md:pr-6" onSubmit={handleAuthAction}>
             
-            {/* USERNAME (Signup Only) */}
             {!isLogin && (
               <div className="relative mb-4 md:mb-6">
                 <input 
@@ -108,7 +112,6 @@ const Login = ({ onLogin }) => {
               </div>
             )}
 
-            {/* EMAIL */}
             <div className="relative mb-4 md:mb-6">
               <input 
                 name="email"
@@ -121,7 +124,6 @@ const Login = ({ onLogin }) => {
               <Mail className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 md:w-6 md:h-6 text-gray-400" />
             </div>
 
-            {/* PASSWORD */}
             <div className="relative mb-4 md:mb-6">
               <input 
                 name="password"
@@ -140,7 +142,6 @@ const Login = ({ onLogin }) => {
               </button>
             </div>
 
-            {/* SUBMIT BUTTON */}
             <button 
               type="submit"
               className="cursor-pointer w-full bg-[#099FAD] hover:bg-[#078C98] text-white font-bold py-3 md:py-4 rounded-full transition-colors mt-2 md:mt-4 shadow-xl shadow-[#099FAD]/30 text-sm md:text-lg"
@@ -150,7 +151,6 @@ const Login = ({ onLogin }) => {
 
           </form>
 
-          {/* FOOTER */}
           <div className="mt-6 md:mt-8 text-sm md:text-base text-gray-500 text-center md:text-left">
             {isLogin ? "No account?" : "Have an account?"} 
             <button onClick={() => toggleMode(!isLogin)} className="cursor-pointer text-[#099FAD] font-regular hover:underline ml-2">
