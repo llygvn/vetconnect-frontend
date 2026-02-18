@@ -2,52 +2,74 @@ import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff, User } from 'lucide-react';
 import logoImg from './assets/logo.png';
 import bgPattern from './assets/pattern.png';
+import API from "./api";
 
+// errors are commented as it is currently not used which causes errors or warning in the terminal, uncomment it with ctrl+/
 const Login = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true); 
   const [showPassword, setShowPassword] = useState(false);
-
   const [formData, setFormData] = useState({ username: '', email: '', password: '' });
-  const [errors, setErrors] = useState({ username: '', email: '', password: '' });
+  // const [errors, setErrors] = useState({ username: '', email: '', password: '' });
+  const [message, setMessage] = useState("");
+
+
+    // Strong password regex: 12+ chars, uppercase, lowercase, number, special character
+    const strongPasswordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{12,}$/;
+
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
-    setErrors(prev => ({ ...prev, [name]: '' }));
+    // setErrors(prev => ({ ...prev, [name]: '' }));
   };
 
   const toggleMode = (loginMode) => {
     setIsLogin(loginMode);
-    setErrors({ username: '', email: '', password: '' });
+    // setErrors({ username: '', email: '', password: '' });
     setFormData({ username: '', email: '', password: '' });
+    setMessage("");
   };
 
   const handleAuthAction = (e) => {
     e.preventDefault();
-    let hasError = false;
+    // let hasError = false;
     
     // Basic validation
     if (!formData.email || !formData.password) {
-      alert("Please fill in the fields");
+      alert("Please fill in all required fields");
       return;
     }
 
-    if (isLogin) {
-      // --- ADMIN LOGIN LOGIC ---
-      // Dito natin chine-check kung admin ang nag-log in
-      if (formData.email === "admin@vetconnect.com" && formData.password === "admin123") {
-        onLogin('admin'); // Ipapasa ang 'admin' role sa App.jsx
-      } else {
-        // Default ay 'user' role
-        onLogin('user'); 
+     if (!isLogin) {
+      // Strong password check
+      if (!strongPasswordRegex.test(formData.password)) {
+        alert("Password must be at least 12 characters and include uppercase, lowercase, number, and special character.");
+        return;
       }
-    } else {
-      // Signup logic
-      alert("Account created successfully! Logging you in...");
-      onLogin('user'); 
+
+      API.post("/api/register", {
+        username: formData.username,
+        email: formData.email,
+        password: formData.password
+      })
+        .then(res => {
+          setMessage(res.data.message);
+          setIsLogin(true);
+        })
+        .catch(err => alert(err.response?.data?.error || "Signup failed"));
+      return;
     }
+
+    // Login
+    API.post("/api/login", { email: formData.email, password: formData.password })
+      .then(res => {
+        localStorage.setItem("token", res.data.token);
+        onLogin(res.data.role);
+      })
+      .catch(err => alert(err.response?.data?.error || "Login failed"));
   };
 
+  
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4 font-sans">
       
@@ -72,6 +94,13 @@ const Login = ({ onLogin }) => {
           <p className="text-base md:text-lg font-light text-gray-500 mb-8">
             {isLogin ? "Let's take care of your pet today." : "Start managing your pet's care today."}
           </p>
+
+          {message && (
+            <div className="mb-4 text-green-600 text-sm md:text-base">
+              {message}
+            </div>
+          )}
+
 
           {/* Toggle Switch */}
           <div className="flex bg-white border border-gray-200 rounded-full p-1 md:p-1.5 mb-6 md:mb-8 w-full max-w-md mx-auto md:mx-0">
