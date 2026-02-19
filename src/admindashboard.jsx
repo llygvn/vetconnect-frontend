@@ -33,11 +33,29 @@ const modalStyles = `
 
 const AdminDashboard = ({ onLogout }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [currentView, setCurrentView] = useState('overview'); // 'overview' | 'appointments' | 'users' | 'records' | 'blockchain' | 'settings'
+  const [currentView, setCurrentView] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [appointmentFilter, setAppointmentFilter] = useState('all');
+
+  // Notifications
+  const [notifications, setNotifications] = useState([
+    { id: 1, message: 'New appointment request from Alice Gong', time: '10:23 AM', read: false },
+    { id: 2, message: 'Appointment #3 has been confirmed', time: '9:45 AM', read: false },
+  ]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notifRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Mock Data
   const [stats] = useState({
@@ -138,8 +156,15 @@ const AdminDashboard = ({ onLogout }) => {
     setAppointments(prev => prev.map(apt => 
       apt.id === appointmentId ? { ...apt, status: newStatus } : apt
     ));
+    const apt = appointments.find(a => a.id === appointmentId);
+    const notif = {
+      id: Date.now(),
+      message: `Appointment for ${apt?.petName || 'pet'} marked as ${newStatus}.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      read: false,
+    };
+    setNotifications(prev => [notif, ...prev]);
     setShowModal(false);
-    alert(`Appointment status updated to: ${newStatus}`);
   };
 
   const getFilteredAppointments = () => {
@@ -328,6 +353,46 @@ const AdminDashboard = ({ onLogout }) => {
             </div>
 
             <div className="flex items-center gap-3">
+              {/* Notification Bell */}
+              <div className="relative" ref={notifRef}>
+                <button
+                  onClick={() => {
+                    setShowNotifications(v => !v);
+                    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                  }}
+                  className="relative p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                  {notifications.filter(n => !n.read).length > 0 && (
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                  )}
+                </button>
+
+                {showNotifications && (
+                  <div className="absolute right-0 top-12 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-scaleIn">
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <p className="text-sm font-semibold text-gray-900">Notifications</p>
+                    </div>
+                    {notifications.length === 0 ? (
+                      <div className="px-4 py-8 text-center">
+                        <p className="text-sm text-gray-400">No notifications</p>
+                      </div>
+                    ) : (
+                      <div className="max-h-72 overflow-y-auto">
+                        {notifications.map(n => (
+                          <div key={n.id} className="px-4 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+                            <p className="text-sm text-gray-800">{n.message}</p>
+                            <p className="text-xs text-gray-400 mt-1">{n.time}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-700">Administrator</p>
                 <p className="text-xs text-gray-500">admin@vetconnect.com</p>
