@@ -1,9 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { 
   Menu, Home, Calendar, Users, FileText, Activity, 
   Settings, LogOut, User, Search, MoreVertical, 
   CheckCircle, Clock, XCircle, DollarSign, TrendingUp,
-  Shield, Database, X
+  Shield, Database, X, AlertCircle, RefreshCw
 } from 'lucide-react';
 import logoImg from './assets/logo.png';
 import API from './api';
@@ -33,6 +33,19 @@ const StatusBadge = ({ status }) => (
     {status.charAt(0).toUpperCase() + status.slice(1)}
   </span>
 );
+
+// ─── Audit action badge colors ────────────────────────────────────────────────
+const getActionBadgeClass = (action = '') => {
+  if (action.includes('FAIL') || action.includes('CANCEL') || action.includes('DEACTIVAT') || action.includes('FORBIDDEN'))
+    return 'bg-red-100 text-red-700';
+  if (action.includes('LOGIN') || action.includes('REGISTER') || action.includes('VERIFIED'))
+    return 'bg-blue-100 text-blue-700';
+  if (action.includes('CREATE') || action.includes('REACTIVAT') || action.includes('SUCCESS'))
+    return 'bg-green-100 text-green-700';
+  if (action.includes('UPDATE') || action.includes('CHANGED') || action.includes('ROLE'))
+    return 'bg-yellow-100 text-yellow-700';
+  return 'bg-gray-100 text-gray-700';
+};
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 const MOCK_STATS = {
@@ -86,13 +99,58 @@ const AdminDashboard = ({ onLogout }) => {
   const [appointmentFilter, setAppointmentFilter] = useState('all');
   const [appointments,      setAppointments]      = useState(MOCK_APPOINTMENTS);
 
-  // FIX: Removed useEffect that injected <style> tags for animations.
-  // Animations now live in tailwind.config.js (see comment at top of file).
+  // ── Audit log state ───────────────────────────────────────────────────────
+  const [auditLogs,    setAuditLogs]    = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError,   setAuditError]   = useState(null);
+  const [auditFilter,  setAuditFilter]  = useState('all');
+  const [auditPage,    setAuditPage]    = useState(1);
+  const [auditMeta,    setAuditMeta]    = useState({ total: 0, pages: 1 });
+  const AUDIT_LIMIT = 50;
 
-  // ── Logout ───────────────────────────────────────────────────────────────────
-  // FIX: Replaced hardcoded 'http://localhost:5000/api/logout' with the shared API instance.
-  // The old URL silently failed in any non-localhost environment, meaning tokens were
-  // never blacklisted and remained valid indefinitely after logout.
+  // Map UI filter tabs → backend action query param
+  const AUDIT_ACTION_MAP = {
+    auth:         ['LOGIN_SUCCESS', 'LOGIN_FAIL', 'LOGOUT', 'REGISTER', 'EMAIL_VERIFIED', 'RESEND_VERIFICATION'],
+    appointments: ['APPOINTMENT_CREATED', 'APPOINTMENT_UPDATED', 'APPOINTMENT_CANCELLED', 'APPOINTMENT_STATUS_CHANGED'],
+    users:        ['USER_DEACTIVATED', 'USER_REACTIVATED', 'USER_ROLE_CHANGED'],
+    errors:       ['LOGIN_FAIL', 'FORBIDDEN_ACCESS'],
+  };
+
+  // ── Fetch audit logs ──────────────────────────────────────────────────────
+  const fetchAuditLogs = useCallback(async (page = 1) => {
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      // Backend supports ?action= for single action; for multi-action filters
+      // we fetch all and filter client-side (backend already limits to 50/page)
+      const params = new URLSearchParams({ page, limit: AUDIT_LIMIT });
+      const res = await API.get(`/api/admin/audit-logs?${params}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      const { data, total, pages } = res.data;
+      setAuditLogs(data);
+      setAuditMeta({ total, pages });
+      setAuditPage(page);
+    } catch (err) {
+      setAuditError('Failed to load audit logs. Please try again.');
+      console.error('Audit log fetch error:', err);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentView === 'audit') fetchAuditLogs(1);
+  }, [currentView, auditFilter, fetchAuditLogs]);
+
+  // ── Derived: client-side filter on current page ───────────────────────────
+  const filteredAuditLogs = auditLogs.filter(log => {
+    if (auditFilter === 'all') return true;
+    const actions = AUDIT_ACTION_MAP[auditFilter] ?? [];
+    return actions.includes(log.action);
+  });
+
+  // ── Logout ────────────────────────────────────────────────────────────────
   const handleLogout = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
@@ -112,7 +170,7 @@ const AdminDashboard = ({ onLogout }) => {
     }
   }, [onLogout]);
 
-  // ── Appointments ─────────────────────────────────────────────────────────────
+  // ── Appointments ──────────────────────────────────────────────────────────
   const handleStatusChange = useCallback((appointmentId, newStatus) => {
     setAppointments(prev => prev.map(apt =>
       apt.id === appointmentId ? { ...apt, status: newStatus } : apt
@@ -125,7 +183,7 @@ const AdminDashboard = ({ onLogout }) => {
     return appointments.filter(apt => apt.status === appointmentFilter);
   }, [appointments, appointmentFilter]);
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
 
@@ -145,6 +203,7 @@ const AdminDashboard = ({ onLogout }) => {
               { view: 'users',        label: 'Users',           El: <Users    className="w-5 h-5 flex-shrink-0" /> },
               { view: 'records',      label: 'Medical Records', El: <FileText className="w-5 h-5 flex-shrink-0" /> },
               { view: 'blockchain',   label: 'Blockchain',      El: <Database className="w-5 h-5 flex-shrink-0" /> },
+              { view: 'audit',        label: 'Audit Logs',      El: <Activity className="w-5 h-5 flex-shrink-0" /> },
               { view: 'settings',     label: 'Settings',        El: <Settings className="w-5 h-5 flex-shrink-0" /> },
             ].map(({ view, label, El }) => (
               <button
@@ -462,6 +521,167 @@ const AdminDashboard = ({ onLogout }) => {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* ── AUDIT LOGS ── */}
+            {currentView === 'audit' && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-2xl font-bold text-gray-900 mb-1">Audit Logs</h1>
+                    <p className="text-sm text-gray-500">Track all system activity and user actions</p>
+                  </div>
+                  <button
+                    onClick={() => fetchAuditLogs(auditPage)}
+                    disabled={auditLoading}
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${auditLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
+                </div>
+
+                {/* Filter tabs */}
+                <div className="flex gap-2 border-b border-gray-200 pb-4">
+                  {[
+                    { key: 'all',          label: 'All'          },
+                    { key: 'auth',         label: 'Auth'         },
+                    { key: 'appointments', label: 'Appointments' },
+                    { key: 'users',        label: 'Users'        },
+                    { key: 'errors',       label: 'Errors'       },
+                  ].map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => { setAuditFilter(key); fetchAuditLogs(1); }}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all border ${auditFilter === key ? 'bg-white text-gray-900 shadow-sm border-[#088a96]/30' : 'text-gray-600 hover:bg-gray-50 border-transparent'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Error state */}
+                {auditError && (
+                  <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
+                    <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                    <p className="text-sm">{auditError}</p>
+                  </div>
+                )}
+
+                {/* Loading state */}
+                {auditLoading && (
+                  <div className="bg-white rounded-xl border border-gray-200 p-12 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3 text-gray-400">
+                      <RefreshCw className="w-6 h-6 animate-spin" />
+                      <p className="text-sm">Loading audit logs...</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Table */}
+                {!auditLoading && !auditError && (
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+                      <p className="text-sm text-gray-500">
+                        Showing <span className="font-semibold text-gray-900">{filteredAuditLogs.length}</span> of{' '}
+                        <span className="font-semibold text-gray-900">{auditMeta.total}</span> total entries
+                      </p>
+                      <p className="text-xs text-gray-400">Page {auditPage} of {auditMeta.pages}</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            {['Timestamp', 'User', 'Role', 'Action', 'Entity', 'IP Address', 'Detail'].map(h => (
+                              <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {filteredAuditLogs.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="px-6 py-12 text-center text-sm text-gray-400">
+                                No audit logs found.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredAuditLogs.map((log, i) => (
+                              <tr key={log.id ?? i} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-6 py-4 text-xs text-gray-500 whitespace-nowrap">
+                                  {log.created_at ? new Date(log.created_at).toLocaleString() : '-'}
+                                </td>
+                                {/* Shows username if joined, falls back to user_id, then anon */}
+                                <td className="px-6 py-4 text-sm text-gray-900">
+                                  {log.username
+                                    ? <span>{log.username} <span className="text-xs text-gray-400">#{log.user_id}</span></span>
+                                    : log.user_id
+                                      ? <span className="text-gray-500">#{log.user_id}</span>
+                                      : <span className="text-gray-400 italic">anon</span>
+                                  }
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-600">
+                                  {log.user_role
+                                    ? <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${log.user_role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}>{log.user_role}</span>
+                                    : <span className="text-gray-400">-</span>
+                                  }
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getActionBadgeClass(log.action)}`}>
+                                    {log.action}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-600">
+                                  {log.entity
+                                    ? <>{log.entity}{log.entity_id ? <span className="text-gray-400"> #{log.entity_id}</span> : null}</>
+                                    : <span className="text-gray-400">-</span>
+                                  }
+                                </td>
+                                <td className="px-6 py-4 text-xs text-gray-500 whitespace-nowrap font-mono">
+                                  {log.ip_address ?? '-'}
+                                </td>
+                                <td className="px-6 py-4 text-xs text-gray-500 max-w-xs truncate" title={log.detail ?? ''}>
+                                  {log.detail ?? '-'}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination */}
+                    {auditMeta.pages > 1 && (
+                      <div className="p-4 border-t border-gray-200 flex items-center justify-between">
+                        <button
+                          onClick={() => fetchAuditLogs(auditPage - 1)}
+                          disabled={auditPage <= 1 || auditLoading}
+                          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          ← Previous
+                        </button>
+                        <div className="flex gap-1">
+                          {Array.from({ length: Math.min(auditMeta.pages, 7) }, (_, i) => i + 1).map(p => (
+                            <button
+                              key={p}
+                              onClick={() => fetchAuditLogs(p)}
+                              className={`w-8 h-8 text-sm rounded-lg transition-colors ${p === auditPage ? 'bg-[#099FAD] text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => fetchAuditLogs(auditPage + 1)}
+                          disabled={auditPage >= auditMeta.pages || auditLoading}
+                          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Next →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
