@@ -73,6 +73,7 @@ const Dashboard = ({ onLogout }) => {
   const [messages,      setMessages]      = useState([]);
   const [inputText,     setInputText]     = useState('');
   const [isTyping,      setIsTyping]      = useState(false);
+  const [isBooked,      setIsBooked]      = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [chatHistory,   setChatHistory]   = useState([]);
   const [currentChatId, setCurrentChatId] = useState(null);
@@ -231,6 +232,7 @@ const Dashboard = ({ onLogout }) => {
 
       // If booking confirmed by AI, create appointment + notification
       if (bookingData) {
+        setIsBooked(true);
         const [datePart, ...timeParts] = bookingData.datetime.split(' ');
         const newAppointment = {
           id:                Date.now(),
@@ -276,6 +278,7 @@ const Dashboard = ({ onLogout }) => {
     await resetSession();
     setMessages([]);
     setShowDatePicker(false);
+    setIsBooked(false);
     setCurrentChatId(null);
     setCurrentView('chat');
   }, [messages, resetSession]);
@@ -302,6 +305,7 @@ const Dashboard = ({ onLogout }) => {
       await resetSession();
       setMessages(chat.messages ?? []);
       setShowDatePicker(false);
+      setIsBooked(false);
       setCurrentChatId(id);
       setCurrentView('chat');
     }
@@ -706,11 +710,12 @@ const Dashboard = ({ onLogout }) => {
                     value={inputText}
                     onChange={e => setInputText(e.target.value)}
                     placeholder="Enter a prompt…"
-                    className="w-full bg-white border border-[#088a96]/30 text-gray-800 placeholder-gray-400 rounded-full py-3.5 pl-6 pr-14 focus:outline-none transition-all shadow-sm"
+                    disabled={isTyping}
+                    className="w-full bg-white border border-[#088a96]/30 text-gray-800 placeholder-gray-400 rounded-full py-3.5 pl-6 pr-14 focus:outline-none transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <button
                     type="submit"
-                    disabled={!inputText.trim()}
+                    disabled={!inputText.trim() || isTyping}
                     className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-[#099FAD] text-white rounded-full hover:bg-[#088a96] disabled:opacity-40 disabled:hover:bg-[#099FAD] transition-all"
                   >
                     <Send className="w-4 h-4" />
@@ -828,22 +833,34 @@ const Dashboard = ({ onLogout }) => {
                     </div>
                   )}
 
-                  <form onSubmit={handleSend} className="w-full relative">
-                    <input
-                      type="text"
-                      value={inputText}
-                      onChange={e => setInputText(e.target.value)}
-                      placeholder="Enter a prompt…"
-                      className="w-full bg-white border border-[#088a96]/30 text-gray-800 placeholder-gray-400 rounded-full py-3 pl-5 pr-12 focus:outline-none transition-all shadow-sm"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!inputText.trim()}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-[#099FAD] text-white rounded-full hover:bg-[#088a96] disabled:opacity-40 disabled:hover:bg-[#099FAD] transition-all"
-                    >
-                      <Send className="w-4 h-4" />
-                    </button>
-                  </form>
+                  {isBooked ? (
+                    <div className="w-full flex items-center gap-3 bg-green-50 border border-green-200 rounded-full py-3 pl-5 pr-5">
+                      <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                      <span className="text-sm text-green-700 font-medium flex-1">Appointment booked! Start a new chat to make another.</span>
+                      <button
+                        onClick={handleNewChat}
+                        className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-full hover:bg-green-700 transition-colors flex-shrink-0"
+                      >New Chat</button>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSend} className="w-full relative">
+                      <input
+                        type="text"
+                        value={inputText}
+                        onChange={e => setInputText(e.target.value)}
+                        placeholder={isTyping ? 'VetConnect is typing…' : 'Enter a prompt…'}
+                        disabled={isTyping}
+                        className="w-full bg-white border border-[#088a96]/30 text-gray-800 placeholder-gray-400 rounded-full py-3 pl-5 pr-12 focus:outline-none transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!inputText.trim() || isTyping}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-[#099FAD] text-white rounded-full hover:bg-[#088a96] disabled:opacity-40 disabled:hover:bg-[#099FAD] transition-all"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </form>
+                  )}
                   <p className="text-xs text-gray-400 mt-2 text-center">VetConnect can make mistakes. Check important info.</p>
                 </div>
               </div>
