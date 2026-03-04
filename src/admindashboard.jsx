@@ -181,7 +181,7 @@ const INITIAL_STATS = {
 
 const INITIAL_BLOCKCHAIN = new BlockchainStatus({
   network:         'Connecting...',
-  contractAddress: '0x4e97BB1FE54B64460D0674477917E8d0438757d6',
+  contractAddress: '0x2d70F92a6d25345C9B62a9542843dfDB28c17F68',
   totalRecords:    0,
   lastBlockHeight: 0,
   gasPrice:        '—',

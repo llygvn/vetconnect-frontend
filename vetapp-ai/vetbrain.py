@@ -4,6 +4,8 @@ import json
 import re
 import hashlib
 import time
+import os
+from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer, util
 from datetime import datetime
 from typing import Tuple, Optional, Dict, Any
@@ -11,7 +13,8 @@ from typing import Tuple, Optional, Dict, Any
 # ==========================================
 # CONFIGURATION
 # ==========================================
-API_KEY = "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"
+load_dotenv()
+API_KEY = os.getenv("OPENROUTER_API_KEY")
 LLM_MODEL = "openai/gpt-4o-mini"
 CLINIC_OPEN = 7   # 7:00 AM
 CLINIC_CLOSE = 20  # 8:00 PM
@@ -648,3 +651,13 @@ Clinical symptoms:"""
                 "Sorry, our clinic is closed at that time. "
                 "We are open Monday–Saturday, 7:00 AM – 8:00 PM only."
             )
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # BLOCKCHAIN - Transaction Hash Generation
+    # ──────────────────────────────────────────────────────────────────────────
+    def generate_transaction_hash(self, booking_data: Dict[str, Any]) -> str:
+        """Generate an immutable SHA-256 hash for the appointment"""
+        payload = {**booking_data, "_timestamp": time.time()}
+        raw_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+        hash_hex = hashlib.sha256(raw_bytes).hexdigest()
+        return f"0x{hash_hex}"
