@@ -34,7 +34,6 @@ const Login = ({ onLogin }) => {
 
     if (isLogin) {
       // --- ADMIN LOGIN LOGIC ---
-      // Dito natin chine-check kung admin ang nag-log in
       if (formData.email === "admin@vetconnect.com" && formData.password === "admin123") {
         onLogin('admin'); // Ipapasa ang 'admin' role sa App.jsx
       } else {

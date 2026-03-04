@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import blockchainService from './blockchain.js';
 import {
   Menu, SquarePen, Calendar, MessageCircleQuestion,
   Send, LogOut, ArrowDown, Camera, X
@@ -246,6 +247,26 @@ const Dashboard = ({ onLogout }) => {
           assignedVet:       'Pending assignment',
         };
         setAppointments(prev => [newAppointment, ...prev]);
+
+        // Log appointment hash to blockchain
+        try {
+          const blockchainResult = await blockchainService.storeRecord(
+            newAppointment.id,
+            {
+              petName: bookingData.petName,
+              species: bookingData.species,
+              service: bookingData.service,
+              datetime: bookingData.datetime,
+            }
+          );
+          if (blockchainResult.success) {
+            console.log('✅ Blockchain record stored. Hash:', blockchainResult.hash);
+          } else {
+            console.warn('⚠️ Blockchain store failed:', blockchainResult.error);
+          }
+        } catch (blockchainErr) {
+          console.warn('⚠️ Blockchain error:', blockchainErr.message);
+        }
         setNotifications(prev => [{
           id:      Date.now(),
           message: `Appointment for ${bookingData.petName} has been submitted and is pending confirmation.`,

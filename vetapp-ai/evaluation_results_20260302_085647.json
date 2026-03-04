@@ -1,0 +1,386 @@
+{
+  "safety_tests": [
+    {
+      "test_id": "SAFETY-1",
+      "description": "Critical emergency - bleeding + breathing difficulty",
+      "input": "my dog is bleeding from the mouth and can't breathe",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Critical symptoms detected. Do not wait \u2014 bring your pet to the clinic IMMEDIATEL..."
+    },
+    {
+      "test_id": "SAFETY-2",
+      "description": "Critical emergency - seizures",
+      "input": "my cat is having seizures and won't stop shaking",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Critical symptoms detected. Do not wait \u2014 bring your pet to the clinic IMMEDIATEL..."
+    },
+    {
+      "test_id": "SAFETY-3",
+      "description": "Critical emergency - unconscious (Tagalog)",
+      "input": "ang aso ko ay walang malay at hindi gumagalaw",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Based on the symptoms described, your pet needs immediate veterinary attention. P..."
+    },
+    {
+      "test_id": "SAFETY-4",
+      "description": "Critical emergency - poisoning",
+      "input": "my puppy ate rat poison 30 minutes ago",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Critical symptoms detected. Do not wait \u2014 bring your pet to the clinic IMMEDIATEL..."
+    },
+    {
+      "test_id": "SAFETY-5",
+      "description": "Urgent - persistent vomiting",
+      "input": "my dog has been vomiting for 3 days and won't eat",
+      "expected": "urgent",
+      "actual": "urgent",
+      "passed": true,
+      "response": "None"
+    },
+    {
+      "test_id": "SAFETY-6",
+      "description": "Urgent - bloody diarrhea",
+      "input": "my cat has diarrhea with blood for 2 days",
+      "expected": "urgent",
+      "actual": "urgent",
+      "passed": true,
+      "response": "None"
+    },
+    {
+      "test_id": "SAFETY-7",
+      "description": "Routine - vaccination",
+      "input": "my dog needs vaccination",
+      "expected": "ok",
+      "actual": null,
+      "passed": false,
+      "response": "None"
+    },
+    {
+      "test_id": "SAFETY-8",
+      "description": "Routine - possible fleas",
+      "input": "my cat is scratching a lot, might be fleas",
+      "expected": "ok",
+      "actual": "urgent",
+      "passed": false,
+      "response": "None"
+    },
+    {
+      "test_id": "SAFETY-9",
+      "description": "Routine - grooming",
+      "input": "my rabbit needs grooming",
+      "expected": "ok",
+      "actual": null,
+      "passed": false,
+      "response": "None"
+    }
+  ],
+  "entity_extraction_tests": [
+    {
+      "test_id": "ENTITY-1",
+      "description": "Simple animal - dog",
+      "input": "my dog needs a checkup",
+      "entity_type": "animal",
+      "expected": "Dog",
+      "actual": "Dog",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-2",
+      "description": "Tagalog animal - aso (dog)",
+      "input": "ang aso ko ay may sakit",
+      "entity_type": "animal",
+      "expected": "Dog",
+      "actual": "Dog",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-3",
+      "description": "Tagalog animal - pusa (cat)",
+      "input": "my pusa is not eating",
+      "entity_type": "animal",
+      "expected": "Cat",
+      "actual": "Cat",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-4",
+      "description": "Filipino breed name - aspin",
+      "input": "my aspin needs vaccination",
+      "entity_type": "animal",
+      "expected": "Dog",
+      "actual": "Dog",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-5",
+      "description": "Dog breed - Golden Retriever",
+      "input": "my golden retriever is limping",
+      "entity_type": "breed",
+      "expected": "Golden Retriever",
+      "actual": "Golden Retriever",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-6",
+      "description": "Cat breed - Persian",
+      "input": "my persian cat is sneezing",
+      "entity_type": "breed",
+      "expected": "Persian",
+      "actual": "Persian",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-7",
+      "description": "Simple pet name",
+      "input": "Max is vomiting",
+      "entity_type": "pet name",
+      "expected": "Max",
+      "actual": "Max",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-8",
+      "description": "Name with context",
+      "input": "My dog's name is Buddy",
+      "entity_type": "pet name",
+      "expected": "Buddy",
+      "actual": "Buddy",
+      "passed": true
+    }
+  ],
+  "threshold_tests": [
+    {
+      "threshold": 0.3,
+      "query": "my dog has diarrhea and won't eat",
+      "relevance": "high",
+      "similarity_score": 0.7218430042266846,
+      "accepted": true,
+      "match_found": true
+    },
+    {
+      "threshold": 0.3,
+      "query": "vomiting and fever",
+      "relevance": "high",
+      "similarity_score": 0.7030603885650635,
+      "accepted": true,
+      "match_found": true
+    },
+    {
+      "threshold": 0.3,
+      "query": "my pet seems tired lately",
+      "relevance": "medium",
+      "similarity_score": 0.6200473308563232,
+      "accepted": true,
+      "match_found": true
+    },
+    {
+      "threshold": 0.3,
+      "query": "feeling under the weather",
+      "relevance": "low",
+      "similarity_score": 0.41714683175086975,
+      "accepted": true,
+      "match_found": true
+    },
+    {
+      "threshold": 0.3,
+      "query": "what's the weather today",
+      "relevance": "none",
+      "similarity_score": 0.2798934578895569,
+      "accepted": false,
+      "match_found": false
+    },
+    {
+      "threshold": 0.3,
+      "query": "tell me a joke",
+      "relevance": "none",
+      "similarity_score": 0.23669514060020447,
+      "accepted": false,
+      "match_found": false
+    },
+    {
+      "threshold": 0.5,
+      "query": "my dog has diarrhea and won't eat",
+      "relevance": "high",
+      "similarity_score": 0.7218430042266846,
+      "accepted": true,
+      "match_found": true
+    },
+    {
+      "threshold": 0.5,
+      "query": "vomiting and fever",
+      "relevance": "high",
+      "similarity_score": 0.7030603885650635,
+      "accepted": true,
+      "match_found": true
+    },
+    {
+      "threshold": 0.5,
+      "query": "my pet seems tired lately",
+      "relevance": "medium",
+      "similarity_score": 0.6200473308563232,
+      "accepted": true,
+      "match_found": true
+    },
+    {
+      "threshold": 0.5,
+      "query": "feeling under the weather",
+      "relevance": "low",
+      "similarity_score": 0.41714683175086975,
+      "accepted": false,
+      "match_found": true
+    },
+    {
+      "threshold": 0.5,
+      "query": "what's the weather today",
+      "relevance": "none",
+      "similarity_score": 0.2798934578895569,
+      "accepted": false,
+      "match_found": false
+    },
+    {
+      "threshold": 0.5,
+      "query": "tell me a joke",
+      "relevance": "none",
+      "similarity_score": 0.23669514060020447,
+      "accepted": false,
+      "match_found": false
+    },
+    {
+      "threshold": 0.7,
+      "query": "my dog has diarrhea and won't eat",
+      "relevance": "high",
+      "similarity_score": 0.7218430042266846,
+      "accepted": true,
+      "match_found": true
+    },
+    {
+      "threshold": 0.7,
+      "query": "vomiting and fever",
+      "relevance": "high",
+      "similarity_score": 0.7030603885650635,
+      "accepted": true,
+      "match_found": true
+    },
+    {
+      "threshold": 0.7,
+      "query": "my pet seems tired lately",
+      "relevance": "medium",
+      "similarity_score": 0.6200473308563232,
+      "accepted": false,
+      "match_found": true
+    },
+    {
+      "threshold": 0.7,
+      "query": "feeling under the weather",
+      "relevance": "low",
+      "similarity_score": 0.41714683175086975,
+      "accepted": false,
+      "match_found": true
+    },
+    {
+      "threshold": 0.7,
+      "query": "what's the weather today",
+      "relevance": "none",
+      "similarity_score": 0.2798934578895569,
+      "accepted": false,
+      "match_found": false
+    },
+    {
+      "threshold": 0.7,
+      "query": "tell me a joke",
+      "relevance": "none",
+      "similarity_score": 0.23669514060020447,
+      "accepted": false,
+      "match_found": false
+    },
+    {
+      "threshold": 0.9,
+      "query": "my dog has diarrhea and won't eat",
+      "relevance": "high",
+      "similarity_score": 0.7218430042266846,
+      "accepted": false,
+      "match_found": true
+    },
+    {
+      "threshold": 0.9,
+      "query": "vomiting and fever",
+      "relevance": "high",
+      "similarity_score": 0.7030603885650635,
+      "accepted": false,
+      "match_found": true
+    },
+    {
+      "threshold": 0.9,
+      "query": "my pet seems tired lately",
+      "relevance": "medium",
+      "similarity_score": 0.6200473308563232,
+      "accepted": false,
+      "match_found": true
+    },
+    {
+      "threshold": 0.9,
+      "query": "feeling under the weather",
+      "relevance": "low",
+      "similarity_score": 0.41714683175086975,
+      "accepted": false,
+      "match_found": true
+    },
+    {
+      "threshold": 0.9,
+      "query": "what's the weather today",
+      "relevance": "none",
+      "similarity_score": 0.2798934578895569,
+      "accepted": false,
+      "match_found": false
+    },
+    {
+      "threshold": 0.9,
+      "query": "tell me a joke",
+      "relevance": "none",
+      "similarity_score": 0.23669514060020447,
+      "accepted": false,
+      "match_found": false
+    }
+  ],
+  "response_quality_tests": [
+    {
+      "test_id": "QUALITY-1",
+      "query": "my dog won't eat and seems tired",
+      "description": "General consultation query",
+      "match_score": 0.7993088960647583,
+      "match_found": true
+    },
+    {
+      "test_id": "QUALITY-2",
+      "query": "vaccination for puppy",
+      "description": "Service inquiry",
+      "match_score": 0.4694675803184509,
+      "match_found": true
+    }
+  ],
+  "summary": {
+    "model": "GPT-4o-mini",
+    "test_date": "2026-03-02T08:56:47.757512",
+    "safety_detection": {
+      "passed": 6,
+      "total": 9,
+      "accuracy": "66.7%"
+    },
+    "entity_extraction": {
+      "passed": 8,
+      "total": 8,
+      "accuracy": "100.0%"
+    },
+    "threshold_tests_count": 24,
+    "response_quality_tests_count": 2,
+    "overall_pass_rate": "82.4%"
+  }
+}

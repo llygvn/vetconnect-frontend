@@ -626,49 +626,94 @@ def _handle_booking_flow(session: dict, raw: str):
             return (f"Nice to meet {name}! 🐾\n\nWhen would you like to schedule the appointment?\n"
                     "Format: MM/DD/YYYY HH:MM AM/PM (e.g. 03/20/2026 10:00 AM)\n\nOur clinic is open Mon–Sat, 7:00 AM – 8:00 PM.")
 
-    # ask_consultation_reason (Consultation only)
+    # ask_consultation_reason (Consultation only) - ENHANCED
     if stage == "ask_consultation_reason":
         pet_name     = data.get("pet_name", "your pet")
         known_animal = data.get("animal")
+        
         if not raw or len(raw.strip()) < 3:
             return (f"Could you describe what {pet_name} is experiencing? "
                     "For example: 'vomiting', 'not eating', 'lethargic', 'skin rash', etc.")
 
-        # Step 1: Tiered safety check (uses raw input before summarizing)
+        # Step 1: Safety check (emergency detection)
         safety_tier, safety_msg = brain.check_safety(raw)
         if safety_tier == "acute":
             session["stage"] = "idle"
             session["data"]  = {}
             return safety_msg
 
-        # Step 2: CSV symptom match (also uses raw input for best similarity)
-        match, score = brain.find_best_match(raw, "symptoms")
+        # Step 2: ENHANCED multi-layer symptom matching
+        if hasattr(brain, 'handle_consultation_reason_enhanced'):
+            # Use enhanced method if available
+            confidence_tier, match, score, clarification_msg = brain.handle_consultation_reason_enhanced(
+                raw, animal=known_animal
+            )
+        else:
+            # Fallback to basic matching
+            match, score = brain.find_best_match(raw, "symptoms")
+            if score >= 0.7:
+                confidence_tier = "high"
+                clarification_msg = None
+            else:
+                confidence_tier = "low"
+                clarification_msg = "I'd like to understand better. Could you describe the specific symptoms more clearly?"
+        
+        # Step 3: Handle based on confidence tier
+        
+        # MEDIUM or LOW confidence - Ask clarifying questions
+        if confidence_tier in ("medium", "low") and clarification_msg:
+            data["consultation_reason_raw"] = raw
+            data["clarification_attempt"] = data.get("clarification_attempt", 0) + 1
+            
+            # If we've asked more than once, just proceed
+            if data.get("clarification_attempt", 0) > 1:
+                complaint_label = brain.summarize_complaint(raw) if match else raw[:60]
+                data["consultation_reason"] = complaint_label
+                session["stage"] = "ask_datetime"
+                return (
+                    "I understand. Let's get you scheduled with our vet.\n\n"
+                    "📅 When would you like to schedule the appointment?\n"
+                    "Format: MM/DD/YYYY HH:MM AM/PM (e.g. 03/20/2026 10:00 AM)\n"
+                    "Our clinic is open Mon–Sat, 7:00 AM – 8:00 PM."
+                )
+            
+            # First attempt - ask for clarification
+            return clarification_msg
+        
+        # HIGH or EXTRACTED confidence - Proceed with match
         csv_dangerous = brain.is_match_dangerous(match)
-
-        # Step 3: Determine urgency tier
+        
         if csv_dangerous and safety_tier != "urgent":
             session["stage"] = "idle"
             session["data"]  = {}
-            return ("🚨 EMERGENCY ALERT: The symptoms you described match a condition flagged as dangerous in our medical guidelines. "
-                    "Do not wait — bring your pet to the clinic IMMEDIATELY or contact an emergency veterinarian right away. "
-                    "Only a licensed veterinarian can confirm the exact cause.")
+            return (
+                "🚨 EMERGENCY ALERT: The symptoms you described match a condition flagged as dangerous. "
+                "Do not wait — bring your pet to the clinic IMMEDIATELY or contact an emergency veterinarian. "
+                "Only a licensed veterinarian can confirm the exact cause."
+            )
 
-        # Step 4: Summarize into a clean medical complaint label for booking records
+        # Summarize and proceed
         complaint_label = brain.summarize_complaint(raw)
-        data["consultation_reason"] = complaint_label   # store the short label
-        data["consultation_reason_raw"] = raw           # keep raw for LLM context
+        data["consultation_reason"] = complaint_label
+        data["consultation_reason_raw"] = raw
 
-        # Step 5: LLM narrates using the raw description for full context
+        # Generate advice
         is_urgent = (safety_tier == "urgent") or csv_dangerous
         advice = brain.ask_llm(_build_symptom_prompt(raw, match, score, known_animal=known_animal, is_urgent=is_urgent))
 
-        # Step 6: Advance to datetime
         session["stage"] = "ask_datetime"
+        
+        # Add note if symptoms were extracted
+        confidence_note = ""
+        if confidence_tier == "extracted":
+            confidence_note = "\n💡 I understood your description better after analyzing the symptoms.\n"
+        
         return (
             f"Thank you for letting us know! 🩺\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             f"{advice}\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
+            f"{confidence_note}"
             "Our vet will assess this further during the consultation.\n\n"
             "📅 When would you like to schedule the appointment?\n"
             "Format: MM/DD/YYYY HH:MM AM/PM (e.g. 03/20/2026 10:00 AM)\n"
@@ -711,8 +756,6 @@ def _handle_booking_flow(session: dict, raw: str):
                 "appointmentStatus":        "pending",
                 "assignedVet":              "Pending assignment",
             }
-            tx_hash = brain.generate_transaction_hash(booking_data)
-            booking_data["transactionHash"] = tx_hash
             session["stage"] = "done"
             session["data"]  = {}
             session["correction_log"] = []
@@ -720,7 +763,6 @@ def _handle_booking_flow(session: dict, raw: str):
                 "✅ Appointment booked successfully!\n\n"
                 "Your request has been submitted and is pending confirmation. "
                 "You'll receive a notification once a vet is assigned.\n\n"
-                f"🔗 Blockchain Receipt (Transaction Hash):\n{tx_hash}\n\n"
                 "You can view your appointment in the My Appointments tab."
             ), booking_data
         elif "cancel" in lower:
@@ -732,7 +774,7 @@ def _handle_booking_flow(session: dict, raw: str):
             if correction:
                 return correction
             return ("Please type 'confirm' to book your appointment, or 'cancel' to start over.\n"
-                    "You can also correct any detail — e.g. 'Actually, the vaccine instead of grooming'.")
+                    "You can also correct any detail — e.g. 'Actually, it's vaccine instead of grooming'.")
 
     session["stage"] = "idle"
     return "Something went wrong. Let's start over — how can I help you today?"
