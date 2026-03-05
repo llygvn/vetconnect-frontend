@@ -63,12 +63,16 @@ const StatusBadge = ({ status }) => {
 };
 
 // ─── AI Backend Config ─────────────────────────────────────────────────────────
-const AI_BACKEND_URL = 'http://localhost:8001/chat';
-const AI_RESET_URL   = 'http://localhost:8001/session/reset';
+const AI_BACKEND_URL  = 'http://localhost:8001/chat';
+const AI_RESET_URL    = 'http://localhost:8001/session/reset';
+const AI_HEALTH_URL   = 'http://localhost:8001/health';
 
 // ─── Dashboard ─────────────────────────────────────────────────────────────────
 const Dashboard = ({ onLogout }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Connectivity
+  const [isOffline, setIsOffline] = useState(false);
 
   // Chat
   const [messages,      setMessages]      = useState([]);
@@ -135,6 +139,21 @@ const Dashboard = ({ onLogout }) => {
     return () => document.head.removeChild(el);
   }, []);
 
+  // ── Backend connectivity check ────────────────────────────────────────────────
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const res = await fetch(AI_HEALTH_URL, { signal: AbortSignal.timeout(4000) });
+        setIsOffline(!res.ok);
+      } catch {
+        setIsOffline(true);
+      }
+    };
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000); // re-check every 30s
+    return () => clearInterval(interval);
+  }, []);
+
   // ── Auto scroll ───────────────────────────────────────────────────────────────
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -170,18 +189,26 @@ const Dashboard = ({ onLogout }) => {
 
   // ── AI Helpers ────────────────────────────────────────────────────────────────
   const callVetBrain = useCallback(async (userMessage) => {
-    const res = await fetch(AI_BACKEND_URL, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ message: userMessage, session_id: sessionIdRef.current }),
-    });
-    if (!res.ok) throw new Error(`AI backend returned ${res.status}`);
-    const data = await res.json();
-    if (data.session_id) {
-      sessionIdRef.current = data.session_id;
-      sessionStorage.setItem('vetbrain_session_id', data.session_id);
+    try {
+      const res = await fetch(AI_BACKEND_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message: userMessage, session_id: sessionIdRef.current }),
+        signal:  AbortSignal.timeout(15000),
+      });
+      if (!res.ok) throw new Error(`AI backend returned ${res.status}`);
+      const data = await res.json();
+      if (data.session_id) {
+        sessionIdRef.current = data.session_id;
+        sessionStorage.setItem('vetbrain_session_id', data.session_id);
+      }
+      setIsOffline(false); // connection restored
+      return { reply: data.reply, bookingData: data.booking_data || null };
+    } catch (err) {
+      const isNetworkError = err instanceof TypeError || err.name === 'TimeoutError' || err.name === 'AbortError';
+      if (isNetworkError) setIsOffline(true);
+      throw err;
     }
-    return { reply: data.reply, bookingData: data.booking_data || null };
   }, []);
 
   const resetSession = useCallback(async () => {
@@ -235,8 +262,12 @@ const Dashboard = ({ onLogout }) => {
       if (bookingData) {
         setIsBooked(true);
         const [datePart, ...timeParts] = bookingData.datetime.split(' ');
+
+        // Risk 2 fix: collision-safe ID instead of Date.now()
+        const safeRecordId = blockchainService.generateRecordId(Date.now());
+
         const newAppointment = {
-          id:                Date.now(),
+          id:                safeRecordId,
           petName:           bookingData.petName,
           species:           bookingData.species,
           service:           bookingData.service,
@@ -245,39 +276,73 @@ const Dashboard = ({ onLogout }) => {
           status:            'upcoming',
           appointmentStatus: 'pending',
           assignedVet:       'Pending assignment',
+          blockchainStatus:  'pending',
         };
         setAppointments(prev => [newAppointment, ...prev]);
 
-        // Log appointment hash to blockchain
+        // Risk 5 fix: surface blockchain failures visibly instead of swallowing them
         try {
           const blockchainResult = await blockchainService.storeRecord(
-            newAppointment.id,
+            safeRecordId,
             {
-              petName: bookingData.petName,
-              species: bookingData.species,
-              service: bookingData.service,
+              petName:  bookingData.petName,
+              species:  bookingData.species,
+              service:  bookingData.service,
               datetime: bookingData.datetime,
             }
           );
           if (blockchainResult.success) {
             console.log('✅ Blockchain record stored. Hash:', blockchainResult.hash);
+            setAppointments(prev => prev.map(a =>
+              a.id === safeRecordId
+                ? { ...a, blockchainStatus: 'verified', blockchainHash: blockchainResult.hash }
+                : a
+            ));
+            setNotifications(prev => [{
+              id:      Date.now(),
+              message: `Appointment for ${bookingData.petName} booked and recorded on blockchain. ✅`,
+              time:    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              read:    false,
+            }, ...prev]);
           } else {
+            // Blockchain write returned a failure — warn the user visibly
             console.warn('⚠️ Blockchain store failed:', blockchainResult.error);
+            setAppointments(prev => prev.map(a =>
+              a.id === safeRecordId ? { ...a, blockchainStatus: 'failed' } : a
+            ));
+            setMessages(prev => [...prev, {
+              text:   '⚠️ Your appointment was saved, but the blockchain record could not be written. Please inform clinic staff so they can verify your booking manually.',
+              sender: 'bot',
+            }]);
+            setNotifications(prev => [{
+              id:      Date.now(),
+              message: `Appointment for ${bookingData.petName} saved — blockchain record failed. Please notify clinic staff.`,
+              time:    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              read:    false,
+            }, ...prev]);
           }
         } catch (blockchainErr) {
+          // Network-level blockchain error — also warn the user visibly
           console.warn('⚠️ Blockchain error:', blockchainErr.message);
+          setAppointments(prev => prev.map(a =>
+            a.id === safeRecordId ? { ...a, blockchainStatus: 'failed' } : a
+          ));
+          setMessages(prev => [...prev, {
+            text:   '⚠️ Your appointment was saved, but the blockchain record could not be written (Ganache may not be running). Please inform clinic staff so they can verify your booking manually.',
+            sender: 'bot',
+          }]);
+          setNotifications(prev => [{
+            id:      Date.now(),
+            message: `Appointment for ${bookingData.petName} saved — blockchain unavailable. Please notify clinic staff.`,
+            time:    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            read:    false,
+          }, ...prev]);
         }
-        setNotifications(prev => [{
-          id:      Date.now(),
-          message: `Appointment for ${bookingData.petName} has been submitted and is pending confirmation.`,
-          time:    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          read:    false,
-        }, ...prev]);
       }
     } catch (err) {
       console.error('VetBrain API error:', err);
       setMessages(prev => [...prev, {
-        text:   "Sorry, I'm having trouble connecting to the AI service. Please try again in a moment.",
+        text:   "⚠️ Unable to reach VetConnect. Please check your internet connection and try again. If the problem persists, contact the clinic directly during business hours (Mon–Sat, 7:00 AM – 8:00 PM).",
         sender: 'bot',
       }]);
     } finally {
@@ -544,6 +609,29 @@ const Dashboard = ({ onLogout }) => {
       >
         <div className="min-h-full flex flex-col">
 
+          {/* ── Offline banner ── */}
+          {isOffline && (
+            <div className="w-full bg-red-50 border-b border-red-200 px-6 py-2.5 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-red-700 text-sm font-medium">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M12 12h.01M8.464 15.536a5 5 0 010-7.072M5.636 18.364a9 9 0 010-12.728" />
+                </svg>
+                VetConnect is currently unreachable. Check your connection or start the backend server.
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch(AI_HEALTH_URL, { signal: AbortSignal.timeout(4000) });
+                    setIsOffline(!res.ok);
+                  } catch { setIsOffline(true); }
+                }}
+                className="text-xs text-red-600 underline underline-offset-2 hover:text-red-800 flex-shrink-0"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {/* ── Header ── */}
           <header className="h-16 flex items-center justify-between px-6">
             <div className="flex items-center gap-2.5">
@@ -730,13 +818,13 @@ const Dashboard = ({ onLogout }) => {
                     type="text"
                     value={inputText}
                     onChange={e => setInputText(e.target.value)}
-                    placeholder="Enter a prompt…"
-                    disabled={isTyping}
+                    placeholder={isOffline ? 'Chat unavailable — no connection' : 'Enter a prompt…'}
+                    disabled={isTyping || isOffline}
                     className="w-full bg-white border border-[#088a96]/30 text-gray-800 placeholder-gray-400 rounded-full py-3.5 pl-6 pr-14 focus:outline-none transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <button
                     type="submit"
-                    disabled={!inputText.trim() || isTyping}
+                    disabled={!inputText.trim() || isTyping || isOffline}
                     className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-[#099FAD] text-white rounded-full hover:bg-[#088a96] disabled:opacity-40 disabled:hover:bg-[#099FAD] transition-all"
                   >
                     <Send className="w-4 h-4" />
@@ -869,13 +957,13 @@ const Dashboard = ({ onLogout }) => {
                         type="text"
                         value={inputText}
                         onChange={e => setInputText(e.target.value)}
-                        placeholder={isTyping ? 'VetConnect is typing…' : 'Enter a prompt…'}
-                        disabled={isTyping}
+                        placeholder={isOffline ? 'Chat unavailable — no connection' : isTyping ? 'VetConnect is typing…' : 'Enter a prompt…'}
+                        disabled={isTyping || isOffline}
                         className="w-full bg-white border border-[#088a96]/30 text-gray-800 placeholder-gray-400 rounded-full py-3 pl-5 pr-12 focus:outline-none transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                       <button
                         type="submit"
-                        disabled={!inputText.trim() || isTyping}
+                        disabled={!inputText.trim() || isTyping || isOffline}
                         className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-[#099FAD] text-white rounded-full hover:bg-[#088a96] disabled:opacity-40 disabled:hover:bg-[#099FAD] transition-all"
                       >
                         <Send className="w-4 h-4" />
@@ -916,6 +1004,29 @@ const Dashboard = ({ onLogout }) => {
               <div className="flex items-center justify-between bg-[#099FAD]/5 rounded-lg p-3 border border-[#099FAD]/20">
                 <p className="text-xs text-gray-600">Assigned Vet:</p>
                 <p className="text-sm font-semibold text-[#099FAD]">{selectedAppointment.assignedVet}</p>
+              </div>
+              <div className={`flex items-center justify-between rounded-lg p-3 border ${
+                selectedAppointment.blockchainStatus === 'verified' ? 'bg-green-50 border-green-200' :
+                selectedAppointment.blockchainStatus === 'failed'   ? 'bg-red-50 border-red-200' :
+                'bg-gray-50 border-gray-200'
+              }`}>
+                <p className="text-xs text-gray-600">Blockchain Record:</p>
+                <div className="flex flex-col items-end gap-0.5">
+                  <span className={`text-xs font-semibold ${
+                    selectedAppointment.blockchainStatus === 'verified' ? 'text-green-700' :
+                    selectedAppointment.blockchainStatus === 'failed'   ? 'text-red-600' :
+                    'text-gray-500'
+                  }`}>
+                    {selectedAppointment.blockchainStatus === 'verified' ? '✅ Verified on-chain' :
+                     selectedAppointment.blockchainStatus === 'failed'   ? '⚠️ Not recorded' :
+                     '⏳ Pending'}
+                  </span>
+                  {selectedAppointment.blockchainHash && (
+                    <span className="text-[10px] text-gray-400 font-mono truncate max-w-[140px]" title={selectedAppointment.blockchainHash}>
+                      {selectedAppointment.blockchainHash.slice(0, 10)}…
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             {showRescheduler && (

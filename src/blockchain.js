@@ -16,8 +16,27 @@ class BlockchainService {
       "function getRecordTimestamp(uint256 recordId) external view returns (uint256)",
       "function totalRecords() external view returns (uint256)",
       "function owner() external view returns (address)",
-      "event RecordStored(uint256 indexed recordId, bytes32 recordHash, uint256 timestamp)"
+      "function pendingOwner() external view returns (address)",
+      "function transferOwnership(address newOwner) external",
+      "function acceptOwnership() external",
+      "function cancelOwnershipTransfer() external",
+      "function addVet(address vet) external",
+      "function removeVet(address vet) external",
+      "function isAuthorized(address vet) external view returns (bool)",
+      "event RecordStored(uint256 indexed recordId, bytes32 recordHash, uint256 timestamp)",
+      "event OwnershipTransferInitiated(address indexed currentOwner, address indexed pendingOwner)",
+      "event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)"
     ];
+  }
+
+  // Generate a collision-safe uint256 record ID from a booking ID + timestamp + random salt.
+  // Avoids the Date.now() collision risk when two bookings land in the same millisecond.
+  generateRecordId(bookingId) {
+    const salt   = Math.floor(Math.random() * 1_000_000);
+    const raw    = `${bookingId}-${Date.now()}-${salt}`;
+    const hashed = ethers.id(raw);                      // keccak256 → bytes32 hex
+    // Take the last 15 hex digits and convert to a safe JS integer (< 2^53)
+    return parseInt(hashed.slice(-15), 16);
   }
 
   // Initialize connection to Ganache
@@ -30,6 +49,17 @@ class BlockchainService {
         this.abi,
         this.signer
       );
+
+      // Risk 3 warning: default Ganache account 0 uses a publicly known mnemonic.
+      // In production, replace getSigner(0) with a wallet loaded from a secured
+      // private key (e.g. environment variable or hardware wallet).
+      const signerAddress = await this.signer.getAddress();
+      console.warn(
+        "⚠️  BlockchainService: connected using Ganache default account", signerAddress,
+        "\n   DO NOT use this in production — the private key is publicly known.",
+        "\n   Replace with: new ethers.Wallet(process.env.PRIVATE_KEY, this.provider)"
+      );
+
       console.log("✅ BlockchainService connected.");
       return true;
     } catch (err) {

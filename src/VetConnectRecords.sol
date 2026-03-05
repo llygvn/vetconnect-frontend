@@ -8,8 +8,15 @@ contract VetConnectRecords {
     // Role-based access
     mapping(address => bool) public authorizedVets;
 
-    // ONE mapping, ONE SSTORE — store only the hash
-    mapping(uint256 => bytes32) private records;
+    // Packed struct: bytes32 (32 bytes) + uint64 (8 bytes) = single 32-byte SSTORE
+    struct Record {
+        bytes32 recordHash;
+        uint64  timestamp;
+    }
+    mapping(uint256 => Record) private records;
+
+    // totalRecords counter for status reporting
+    uint256 public totalRecords;
 
     event RecordStored(uint256 indexed recordId, bytes32 recordHash, uint256 timestamp);
     event VetAuthorized(address indexed vet);
@@ -52,23 +59,53 @@ contract VetConnectRecords {
     // --- Record Management (owner or authorized vet) ---
 
     function storeRecord(uint256 recordId, bytes32 recordHash) external onlyAuthorized {
-        require(records[recordId] == bytes32(0), "Record already exists");
-        records[recordId] = recordHash;  // single SSTORE
+        require(records[recordId].recordHash == bytes32(0), "Record already exists");
+        records[recordId] = Record({
+            recordHash: recordHash,
+            timestamp:  uint64(block.timestamp)
+        });
+        totalRecords++;
         emit RecordStored(recordId, recordHash, block.timestamp);
     }
 
     function verifyRecord(uint256 recordId, bytes32 recordHash) external view returns (bool) {
-        return records[recordId] == recordHash;
+        return records[recordId].recordHash == recordHash;
     }
 
     function getRecordHash(uint256 recordId) external view returns (bytes32) {
-        return records[recordId];
+        return records[recordId].recordHash;
     }
 
-    // --- Ownership ---
+    // Restored: returns the timestamp stored with the record
+    function getRecordTimestamp(uint256 recordId) external view returns (uint256) {
+        return uint256(records[recordId].timestamp);
+    }
 
+    // --- Ownership (two-step to prevent accidental lockout) ---
+
+    address public pendingOwner;
+
+    event OwnershipTransferInitiated(address indexed currentOwner, address indexed pendingOwner);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    // Step 1: current owner nominates a new owner
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "Invalid address");
-        owner = newOwner;
+        require(newOwner != owner, "Already owner");
+        pendingOwner = newOwner;
+        emit OwnershipTransferInitiated(owner, newOwner);
+    }
+
+    // Step 2: nominated address must explicitly accept
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "Not pending owner");
+        emit OwnershipTransferred(owner, pendingOwner);
+        owner        = pendingOwner;
+        pendingOwner = address(0);
+    }
+
+    // Cancel a pending transfer (owner only)
+    function cancelOwnershipTransfer() external onlyOwner {
+        pendingOwner = address(0);
     }
 }

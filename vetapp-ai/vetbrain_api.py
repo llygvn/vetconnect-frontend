@@ -382,6 +382,43 @@ def _handle_correction(session: dict, raw: str) -> Optional[str]:
 # ── Main chat endpoint ────────────────────────────────────────────────────────
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
+    # Availability: wrap entire handler so any unhandled network/runtime error
+    # returns a safe offline message instead of a 500 crash.
+    try:
+        return _chat_handler(req)
+    except Exception as e:
+        print(f"[CHAT ERROR] Unhandled exception: {e}")
+        sid = req.session_id or "unknown"
+        return ChatResponse(
+            reply=(
+                "⚠️ VetConnect is temporarily unavailable due to a connection issue. "
+                "Please check your internet connection and try again in a moment. "
+                "If the problem persists, contact the clinic directly during business hours "
+                "(Mon–Sat, 7:00 AM – 8:00 PM)."
+            ),
+            session_id=sid,
+        )
+
+
+def _chat_handler(req: ChatRequest):
+    # ── Availability: wrap entire handler so network/runtime errors never crash ──
+    try:
+        return _chat_handler(req)
+    except Exception as e:
+        print(f"[CHAT ERROR] Unhandled exception: {e}")
+        sid = req.session_id or "unknown"
+        return ChatResponse(
+            reply=(
+                "⚠️ VetConnect is temporarily unavailable due to a connection issue. "
+                "Please check your internet connection and try again in a moment. "
+                "If the problem persists, you can call the clinic directly during business hours "
+                "(Mon–Sat, 7:00 AM – 8:00 PM)."
+            ),
+            session_id=sid,
+        )
+
+
+def _chat_handler(req: ChatRequest):
     sid = req.session_id or str(uuid.uuid4())
     if sid not in sessions:
         sessions[sid] = {"stage": "idle", "data": {}, "last_message": 0.0, "correction_log": []}
