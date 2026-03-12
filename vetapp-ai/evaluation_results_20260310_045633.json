@@ -1,0 +1,443 @@
+{
+  "safety_tests": [
+    {
+      "test_id": "SAFETY-1",
+      "description": "Critical \u2014 bleeding + breathing difficulty",
+      "input": "my dog is bleeding from the mouth and can't breathe",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Critical symptoms detected. Do not wait \u2014 bring your pet to the clinic IMMEDIATEL"
+    },
+    {
+      "test_id": "SAFETY-2",
+      "description": "Critical \u2014 seizures",
+      "input": "my cat is having seizures and won't stop shaking",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Critical symptoms detected. Do not wait \u2014 bring your pet to the clinic IMMEDIATEL"
+    },
+    {
+      "test_id": "SAFETY-3",
+      "description": "Critical \u2014 unconscious (Tagalog)",
+      "input": "ang aso ko ay walang malay at hindi gumagalaw",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Based on the symptoms described, your pet needs immediate veterinary attention. P"
+    },
+    {
+      "test_id": "SAFETY-4",
+      "description": "Critical \u2014 poisoning",
+      "input": "my puppy ate rat poison 30 minutes ago",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Critical symptoms detected. Do not wait \u2014 bring your pet to the clinic IMMEDIATEL"
+    },
+    {
+      "test_id": "SAFETY-5",
+      "description": "Urgent \u2014 persistent vomiting",
+      "input": "my dog has been vomiting for 3 days and won't eat",
+      "expected": "urgent",
+      "actual": "urgent",
+      "passed": true,
+      "response": ""
+    },
+    {
+      "test_id": "SAFETY-6",
+      "description": "Urgent \u2014 bloody diarrhea",
+      "input": "my cat has diarrhea with blood for 2 days",
+      "expected": "urgent",
+      "actual": "urgent",
+      "passed": true,
+      "response": ""
+    },
+    {
+      "test_id": "SAFETY-7",
+      "description": "Routine \u2014 vaccination",
+      "input": "my dog needs vaccination",
+      "expected": "ok",
+      "actual": "ok",
+      "passed": true,
+      "response": ""
+    },
+    {
+      "test_id": "SAFETY-8",
+      "description": "Routine \u2014 possible fleas",
+      "input": "my cat is scratching a lot, might be fleas",
+      "expected": "ok",
+      "actual": "ok",
+      "passed": true,
+      "response": ""
+    },
+    {
+      "test_id": "SAFETY-9",
+      "description": "Routine \u2014 grooming",
+      "input": "my rabbit needs grooming",
+      "expected": "ok",
+      "actual": "ok",
+      "passed": true,
+      "response": ""
+    }
+  ],
+  "entity_extraction_tests": [
+    {
+      "test_id": "ENTITY-1",
+      "description": "Simple animal \u2014 dog",
+      "input": "my dog needs a checkup",
+      "entity_type": "animal",
+      "expected": "Dog",
+      "actual": "Dog",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-2",
+      "description": "Tagalog \u2014 aso (dog)",
+      "input": "ang aso ko ay may sakit",
+      "entity_type": "animal",
+      "expected": "Dog",
+      "actual": "Dog",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-3",
+      "description": "Tagalog \u2014 pusa (cat)",
+      "input": "my pusa is not eating",
+      "entity_type": "animal",
+      "expected": "Cat",
+      "actual": "Cat",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-4",
+      "description": "Filipino breed \u2014 aspin",
+      "input": "my aspin needs vaccination",
+      "entity_type": "animal",
+      "expected": "Dog",
+      "actual": "Dog",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-5",
+      "description": "Breed \u2014 Golden Retriever",
+      "input": "my golden retriever is limping",
+      "entity_type": "breed",
+      "expected": "Golden Retriever",
+      "actual": "Golden Retriever",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-6",
+      "description": "Breed \u2014 Persian",
+      "input": "my persian cat is sneezing",
+      "entity_type": "breed",
+      "expected": "Persian",
+      "actual": "Persian",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-7",
+      "description": "Simple pet name",
+      "input": "Max is vomiting",
+      "entity_type": "pet name",
+      "expected": "Max",
+      "actual": "Max",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-8",
+      "description": "Name with context",
+      "input": "My dog's name is Buddy",
+      "entity_type": "pet name",
+      "expected": "Buddy",
+      "actual": "Buddy",
+      "passed": true
+    }
+  ],
+  "rag_retrieval_tests": [
+    {
+      "test_id": "RAG-1",
+      "description": "Arthritis symptoms",
+      "query": "my dog is limping and joints are swollen and painful",
+      "expected_keywords": [
+        "arthritis",
+        "joint"
+      ],
+      "top_retrieved_diseases": [
+        "Arthritis and Joint pain (Cats and Dogs)",
+        "Abscess",
+        "Ulcerative Pododermatitis (Rabbit)"
+      ],
+      "top_score": 0.4846,
+      "avg_score": 0.3914,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-2",
+      "description": "Cat flu symptoms",
+      "query": "my cat is sneezing with discharge from eyes and nose, has fever",
+      "expected_keywords": [
+        "cat flu",
+        "flu",
+        "respiratory"
+      ],
+      "top_retrieved_diseases": [
+        "African Swine Fever",
+        "Pink eye",
+        "Cat flu"
+      ],
+      "top_score": 0.5403,
+      "avg_score": 0.4999,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-3",
+      "description": "Dental disease symptoms",
+      "query": "my dog has bad breath, bleeding gums, and difficulty eating",
+      "expected_keywords": [
+        "dental",
+        "teeth",
+        "gum"
+      ],
+      "top_retrieved_diseases": [
+        "Haemorrhagic septicaemia (HS)",
+        "Listeriosis",
+        "Blue Tongue"
+      ],
+      "top_score": 0.4368,
+      "avg_score": 0.3938,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-4",
+      "description": "Skin/dermatitis symptoms",
+      "query": "my dog is scratching a lot, hair loss and skin rashes",
+      "expected_keywords": [
+        "dermatitis",
+        "skin",
+        "parasite"
+      ],
+      "top_retrieved_diseases": [
+        "Dermatophytes Infection (Rabbit)",
+        "Dermatitis (Cats and Dogs)",
+        "Ringworm"
+      ],
+      "top_score": 0.4828,
+      "avg_score": 0.4418,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-5",
+      "description": "Diabetes symptoms",
+      "query": "my dog is drinking a lot of water and urinating frequently, losing weight",
+      "expected_keywords": [
+        "diabetes",
+        "kidney",
+        "urinary"
+      ],
+      "top_retrieved_diseases": [
+        "Kidney disease (Cats and Dogs)",
+        "Diabetes (Cats and Dogs)",
+        "Acetonaemia (ketosis, fatty liver)"
+      ],
+      "top_score": 0.4375,
+      "avg_score": 0.3688,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-6",
+      "description": "Ear infection symptoms",
+      "query": "my cat is shaking its head and scratching its ears constantly",
+      "expected_keywords": [
+        "ear",
+        "infection",
+        "mite"
+      ],
+      "top_retrieved_diseases": [
+        "Ear problems (Cats and Dogs)",
+        "Mites (Rabbit)",
+        "Haemorrhagic septicaemia (HS)"
+      ],
+      "top_score": 0.6797,
+      "avg_score": 0.4724,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-7",
+      "description": "Eye problem symptoms",
+      "query": "my dog has red watery eyes and eye discharge",
+      "expected_keywords": [
+        "eye",
+        "inflammation",
+        "conjunctiv"
+      ],
+      "top_retrieved_diseases": [
+        "Pink eye",
+        "Theileriosis",
+        "Eye Inflammation (Cats and Dogs)"
+      ],
+      "top_score": 0.5159,
+      "avg_score": 0.4344,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-8",
+      "description": "GI/digestive symptoms",
+      "query": "my dog is vomiting and has diarrhea for 2 days",
+      "expected_keywords": [
+        "gastrointestinal",
+        "digestive",
+        "gastro",
+        "parvovirus",
+        "distemper"
+      ],
+      "top_retrieved_diseases": [
+        "Parvovirus",
+        "Poisoned diseases (Cattle)",
+        "Diarrhea (Cattle)"
+      ],
+      "top_score": 0.5308,
+      "avg_score": 0.5113,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-9",
+      "description": "Off-topic query (expected low confidence)",
+      "query": "tell me a joke",
+      "expected_keywords": [],
+      "top_retrieved_diseases": [
+        "Acetonaemia (ketosis, fatty liver)",
+        "Lead poisoning",
+        "Weight Management (Cats and Digs)"
+      ],
+      "top_score": 0.2491,
+      "avg_score": 0.2266,
+      "passed": true,
+      "relevance_note": "Off-topic check: top score \u2705 LOW (<0.4)"
+    },
+    {
+      "test_id": "RAG-10",
+      "description": "Completely off-topic query",
+      "query": "what is the weather today",
+      "expected_keywords": [],
+      "top_retrieved_diseases": [
+        "Theileriosis",
+        "Canine Hepatitis",
+        "African Swine Fever"
+      ],
+      "top_score": 0.356,
+      "avg_score": 0.3401,
+      "passed": true,
+      "relevance_note": "Off-topic check: top score \u2705 LOW (<0.4)"
+    }
+  ],
+  "rag_response_tests": [
+    {
+      "test_id": "RESPONSE-1",
+      "description": "General consultation \u2014 lethargy and anorexia",
+      "query": "my dog won't eat and seems very tired and lethargic",
+      "animal": "Dog",
+      "is_urgent": false,
+      "rag_records_used": 5,
+      "top_disease_retrieved": "Diabetes (Cats and Dogs)",
+      "response_preview": "Your dog's lack of appetite and lethargy could be related to various issues, such as gastrointestinal disorders or even diabetes. It's important to monitor these symptoms closely, as they can indicate",
+      "contains_required_keywords": true,
+      "no_forbidden_phrases": true,
+      "has_content": true,
+      "passed": true
+    },
+    {
+      "test_id": "RESPONSE-2",
+      "description": "Urgent \u2014 persistent vomiting + weight loss",
+      "query": "my cat has been vomiting for 3 days and losing weight",
+      "animal": "Cat",
+      "is_urgent": true,
+      "rag_records_used": 5,
+      "top_disease_retrieved": "Gastrointestinal and Digestive disorders (Cats and Dogs)",
+      "response_preview": "I'm sorry to hear that your cat has been vomiting for three days and losing weight. Possible causes include gastrointestinal disorders, which can lead to dehydration and other serious issues. It's imp",
+      "contains_required_keywords": true,
+      "no_forbidden_phrases": true,
+      "has_content": true,
+      "passed": true
+    },
+    {
+      "test_id": "RESPONSE-3",
+      "description": "Rabbit eye/skin issue",
+      "query": "my rabbit has red watery eyes and is scratching its face",
+      "animal": "Rabbit",
+      "is_urgent": false,
+      "rag_records_used": 5,
+      "top_disease_retrieved": "Pink eye",
+      "response_preview": "Possible causes for your rabbit's red watery eyes and face scratching may include a fungal infection like dermatophytosis, commonly known as ringworm, which can cause itching and irritation. Additiona",
+      "contains_required_keywords": true,
+      "no_forbidden_phrases": true,
+      "has_content": true,
+      "passed": true
+    },
+    {
+      "test_id": "RESPONSE-4",
+      "description": "Skin issue \u2014 possible dermatitis or parasites",
+      "query": "my dog is scratching constantly and has hair loss on the belly",
+      "animal": "Dog",
+      "is_urgent": false,
+      "rag_records_used": 5,
+      "top_disease_retrieved": "Dermatophytes Infection (Rabbit)",
+      "response_preview": "It sounds like your dog may be experiencing dermatitis, which can lead to symptoms such as scratching and hair loss. Possible causes include allergies, environmental factors, or parasites. Only a lice",
+      "contains_required_keywords": true,
+      "no_forbidden_phrases": true,
+      "has_content": true,
+      "passed": true
+    }
+  ],
+  "quantitative_metrics": {
+    "safety_classification": {
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "recall_macro": 1.0,
+      "f1_score_macro": 1.0
+    },
+    "rag_mse": 0.07862779300000003
+  },
+  "summary": {
+    "model": "GPT-4o-mini",
+    "mode": "RAG (Retrieval-Augmented Generation)",
+    "rag_knowledge_base": "Animal_disease_spreadsheet_-_Sheet1.csv",
+    "safety_dataset": "clean-data.csv",
+    "test_date": "2026-03-10T04:56:33.028741",
+    "safety_detection": {
+      "passed": 9,
+      "total": 9,
+      "accuracy": "100.0%"
+    },
+    "entity_extraction": {
+      "passed": 8,
+      "total": 8,
+      "accuracy": "100.0%"
+    },
+    "rag_retrieval": {
+      "passed": 10,
+      "total": 10,
+      "accuracy": "100.0%"
+    },
+    "rag_response_quality": {
+      "passed": 4,
+      "total": 4,
+      "accuracy": "100.0%"
+    },
+    "overall_pass_rate": "100.0%",
+    "quantitative_metrics": {
+      "Safety_F1_Score": "1.000",
+      "RAG_Confidence_MSE": "0.0786"
+    }
+  }
+}

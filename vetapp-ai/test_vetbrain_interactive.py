@@ -1,7 +1,7 @@
 """
-VetConnect Interactive Tester
-==============================
-Type any symptom or message and see exactly what VetBrain does with it.
+VetConnect Interactive Tester — RAG Edition
+============================================
+Type any symptom or message and see exactly what VetBrain RAG does with it.
 Run: python test_vetbrain_interactive.py
 """
 
@@ -10,11 +10,11 @@ import time
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 brain = VetBrain()
-print("⏳ Loading VetBrain...")
+print("⏳ Loading VetBrain (RAG Mode)...")
 brain.load_data()
 print("✅ Ready!\n")
 print("=" * 65)
-print("  VETCONNECT INTERACTIVE TESTER")
+print("  VETCONNECT INTERACTIVE TESTER — RAG EDITION")
 print("  Type any symptom, question, or message to evaluate.")
 print("  Type 'quit' to exit.")
 print("=" * 65)
@@ -53,68 +53,62 @@ while True:
     if tier == "acute":
         print(f"   Message: {safety_msg}")
 
-    # ── Step 3: Semantic Match ────────────────────────────────────────────────
+    # ── Step 3: Safety Dataset — Dangerous Flag ───────────────────────────────
     print()
-    print("📋 STEP 2 — SEMANTIC MATCHING")
+    print("📋 STEP 2 — SAFETY DATASET CHECK (Dangerous Flag)")
     match, score = brain.find_best_match(sanitized, "symptoms")
-    print(f"   Cosine Similarity Score: {score:.4f}")
-
-    if score >= 0.70:
-        confidence = "HIGH   (≥0.70) — Direct advice given"
-    elif score >= 0.50:
-        confidence = "MEDIUM (0.50–0.69) — Clarifying questions asked"
-    else:
-        confidence = "LOW    (<0.50) — Symptom extraction + retry"
-    print(f"   Confidence Tier: {confidence}")
-
+    is_dangerous = brain.is_match_dangerous(match)
+    print(f"   Best match score : {score:.4f}")
+    print(f"   Dangerous flag   : {'🚨 YES' if is_dangerous else '✅ NO'}")
     if match:
-        print(f"   Matched Condition : {match.get('Disease', 'N/A')}")
-        print(f"   Matched Animal    : {match.get('Animal', 'N/A')}")
-        print(f"   Symptoms on record: {match.get('Symptoms_Text', 'N/A')[:80]}...")
-        print(f"   Dangerous flag    : {'🚨 YES' if match.get('is_dangerous') else '✅ NO'}")
+        print(f"   Matched symptoms : {match.get('Symptoms_Text', 'N/A')[:60]}...")
 
-    # ── Step 4: If low confidence, try symptom extraction ────────────────────
-    if score < 0.50 and tier not in ("acute",):
-        print()
-        print("📋 STEP 3 — SYMPTOM EXTRACTION (Low confidence retry)")
-        extracted = brain.extract_symptoms_from_narrative(sanitized)
-        print(f"   Extracted symptoms: '{extracted}'")
-        match2, score2 = brain.find_best_match(extracted, "symptoms")
-        print(f"   Retry score       : {score2:.4f}")
-        if score2 > score:
-            print(f"   ✅ Improved! Using extracted match.")
-            match, score = match2, score2
-            if match:
-                print(f"   New match: {match.get('Disease', 'N/A')}")
-        else:
-            print(f"   ❌ No improvement. Will ask for clarification.")
+    # ── Step 4: RAG Retrieval ─────────────────────────────────────────────────
+    print()
+    print("📋 STEP 3 — RAG RETRIEVAL (Top-K Disease Records)")
+    rag_results = brain.retrieve_rag_context(sanitized)
+
+    if rag_results:
+        print(f"   Retrieved {len(rag_results)} relevant records:")
+        for i, r in enumerate(rag_results, 1):
+            print(f"   [{i}] {r['disease']:<40} score: {r['score']:.4f}")
+            print(f"       Symptoms: {r['symptoms'][:70]}...")
+    else:
+        print("   ❌ No relevant records found in RAG knowledge base.")
 
     # ── Step 5: AI Response ───────────────────────────────────────────────────
-    if tier == "acute":
-        print()
-        print("📋 STEP 3 — AI RESPONSE")
-        print(f"   [BYPASSED — Emergency alert sent directly]")
-    else:
-        print()
-        print("📋 STEP 3 — AI RESPONSE")
-        print("   Calling GPT-4o-mini via OpenRouter...")
+    print()
+    print("📋 STEP 4 — AI RESPONSE (RAG-Grounded)")
 
-        from vetbrain_api import _build_symptom_prompt
-        is_urgent = (tier == "urgent") or (match and match.get("is_dangerous", False))
-        prompt = _build_symptom_prompt(sanitized, match, score, is_urgent=is_urgent)
+    if tier == "acute":
+        print("   [BYPASSED — Emergency alert sent directly]")
+    else:
+        print("   Building RAG prompt and calling GPT-4o-mini...")
+        is_urgent = (tier == "urgent")  # csv_dangerous removed — 96% of rows are dangerous (unreliable)
+        prompt = brain.build_rag_prompt(
+            sanitized, rag_results,
+            known_animal=None,
+            is_urgent=is_urgent
+        )
+        print(f"\n   ┌─ RAG Prompt Preview (first 300 chars) ─────────────────")
+        print(f"   │ {prompt[:300].replace(chr(10), chr(10) + '   │ ')}...")
+        print(f"   └────────────────────────────────────────────────────────")
+
         response = brain.ask_llm(prompt)
         print()
-        print("   ┌─ VetBrain Response ──────────────────────────────────────")
+        print("   ┌─ VetBrain RAG Response ─────────────────────────────────")
         for line in response.split("\n"):
             print(f"   │ {line}")
-        print("   └──────────────────────────────────────────────────────────")
+        print("   └────────────────────────────────────────────────────────")
 
     # ── Summary ───────────────────────────────────────────────────────────────
     print()
     print("📊 EVALUATION SUMMARY")
-    print(f"   Input        : {user_input}")
-    print(f"   Safety Tier  : {tier.upper()}")
-    print(f"   Match Score  : {score:.4f}")
-    print(f"   Condition    : {match.get('Disease', 'N/A') if match else 'No match'}")
-    print(f"   Dangerous    : {'Yes' if match and match.get('is_dangerous') else 'No'}")
+    print(f"   Input            : {user_input}")
+    print(f"   Safety Tier      : {tier.upper()}")
+    print(f"   Dangerous Flag   : {'Yes' if is_dangerous else 'No'}")
+    print(f"   RAG Records Found: {len(rag_results)}")
+    if rag_results:
+        print(f"   Top Match        : {rag_results[0]['disease']} (score: {rag_results[0]['score']:.4f})")
+        print(f"   Top 3 Diseases   : {', '.join(r['disease'] for r in rag_results[:3])}")
     print("─" * 65)

@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer, util
 from datetime import datetime
-from typing import Tuple, Optional, Dict, Any
+from typing import Tuple, Optional, Dict, Any, List
 
 # ==========================================
 # CONFIGURATION
@@ -19,31 +19,28 @@ LLM_MODEL = "openai/gpt-4o-mini"
 CLINIC_OPEN = 7   # 7:00 AM
 CLINIC_CLOSE = 20  # 8:00 PM
 
-# Minimum seconds between LLM calls (Risk 1 — Rate Limiting).
+# Minimum seconds between LLM calls (Rate Limiting)
 RATE_LIMIT_SECONDS = 3
 
-# ENHANCED: Multi-tier confidence thresholds
-SIMILARITY_THRESHOLD_HIGH = 0.7   # High confidence - provide advice directly
-SIMILARITY_THRESHOLD_MED = 0.5    # Medium confidence - ask clarifying questions
-# Below 0.5 - Extract symptoms and retry
-
-# Backward compatibility
-SIMILARITY_THRESHOLD = SIMILARITY_THRESHOLD_HIGH
+# RAG configuration
+RAG_TOP_K = 5  # Number of top matches to retrieve for context
 
 # ==========================================
-# VETBRAIN — AI Logic Class (ENHANCED)
+# VETBRAIN — AI Logic Class (RAG-Enhanced)
 # ==========================================
 
 class VetBrain:
     def __init__(self):
         self.status = "Loading..."
         self.df_services = pd.DataFrame()
-        self.df_symptoms = pd.DataFrame()
+        self.df_symptoms = pd.DataFrame()       # clean-data.csv (safety + ML eval)
+        self.df_rag = pd.DataFrame()            # Animal_disease_spreadsheet (RAG knowledge base)
         self.symptom_embeddings = None
+        self.rag_embeddings = None
         self.embedding_model = None
-        self.last_llm_call = 0.0  # Rate limiting tracker
+        self.last_llm_call = 0.0
 
-        # ── Supported & out-of-scope animals ────────────────────────────────────
+        # ── Supported & out-of-scope animals ────────────────────────────────
         self.supported_animals = [
             "Dog", "Cat", "Rabbit", "Hamster", "Turtle", "Bird",
             "Cow", "Hen", "Pig", "Goat", "Sheep", "Horse", "Duck",
@@ -57,14 +54,12 @@ class VetBrain:
 
         # ── Tagalog → English animal name mapping ────────────────────────────
         self.tagalog_animal_map = {
-            # Pets
             "aso": "Dog", "aspin": "Dog", "askal": "Dog",
             "pusa": "Cat", "puspin": "Cat",
             "kuneho": "Rabbit",
             "hamster": "Hamster",
             "pagong": "Turtle",
             "ibon": "Bird",
-            # Farm animals
             "baka": "Cow",
             "manok": "Hen",
             "baboy": "Pig",
@@ -77,7 +72,7 @@ class VetBrain:
             "mula": "Mule",
         }
 
-        # ── Breed whitelist for validation ────────────────────────────────
+        # ── Breed whitelist ────────────────────────────────────────────────
         self.BREED_WHITELIST = {
             "Dog": [
                 "aspin", "askal", "mongrel", "mixed", "labrador", "golden retriever",
@@ -119,13 +114,13 @@ ABSOLUTE RULES — never violate any of these:
    booking through this chat system.
 9. OUT-OF-SCOPE: If the question is not about pet health, veterinary services,
    or appointment booking, reply: "I can only assist with veterinary questions."
-10. HALLUCINATION PREVENTION — CRITICAL: You will be given a specific condition name and
-    advice extracted directly from a verified veterinary dataset (clean-data.csv).
-    You MUST only discuss the condition and advice that is explicitly provided to you
-    in the prompt. NEVER fabricate, add, or infer any drug names, dosages,
-    diagnostic tests, or conditions beyond what is explicitly given to you.
-    Your role is to communicate the dataset findings in a clear, empathetic tone — not
-    to generate new medical information.
+10. HALLUCINATION PREVENTION — CRITICAL: You will be given context extracted directly
+    from a verified veterinary knowledge base. You MUST only discuss conditions and
+    advice that is explicitly provided to you in the prompt context.
+    NEVER fabricate, add, or infer any drug names, dosages, diagnostic tests,
+    or conditions beyond what is explicitly given to you.
+    Your role is to communicate the knowledge base findings in a clear, empathetic
+    tone — not to generate new medical information.
 """
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -133,7 +128,7 @@ ABSOLUTE RULES — never violate any of these:
     # ──────────────────────────────────────────────────────────────────────────
     def load_data(self):
         """Load veterinary knowledge base and initialize embedding model"""
-        print("⏳ Initializing VetConnect AI... (Loading Knowledge Base)")
+        print("⏳ Initializing VetConnect AI... (RAG Mode)")
 
         # --- A. SERVICES ---
         services_data = [
@@ -144,11 +139,8 @@ ABSOLUTE RULES — never violate any of these:
             {"Name": "Grooming", "User_Phrases": "ligua, gupit, bath, haircut, smell bad", "Advice / Notes": "Inform us if aggressive."},
         ]
         self.df_services = pd.DataFrame(services_data)
-        self.df_services["combined_text"] = (
-            self.df_services["Name"] + " " + self.df_services["User_Phrases"]
-        )
 
-        # --- B. SYMPTOMS (from clean-data.csv) ---
+        # --- B. SAFETY DATASET (clean-data.csv) — kept for safety detection ---
         try:
             self.df_symptoms = pd.read_csv("clean-data.csv")
             cols = ['Symptom 1', 'Symptom 2', 'Symptom 3', 'Symptom 4', 'Symptom 5']
@@ -158,64 +150,97 @@ ABSOLUTE RULES — never violate any of these:
             self.df_symptoms['is_dangerous'] = (
                 self.df_symptoms['Dangerous'].str.lower().str.strip() == 'yes'
             )
-            self.df_symptoms['Advice / Notes'] = self.df_symptoms['is_dangerous'].apply(
-                lambda d: "⚠️ URGENT: Visit vet immediately." if d else "Monitor closely."
-            )
-            self.df_symptoms['Name'] = "Symptom Analysis"
-            self.df_symptoms["combined_text"] = (
+            self.df_symptoms['combined_text'] = (
                 self.df_symptoms['Animal'].astype(str) + " "
                 + self.df_symptoms['Symptoms_Text'].astype(str)
             )
-            print(f"✅ CSV loaded: {len(self.df_symptoms)} symptom rows.")
+            print(f"✅ Safety dataset loaded: {len(self.df_symptoms)} rows.")
         except Exception as e:
-            print(f"⚠️  Warning: CSV error ({e}). Using AI fallback.")
+            print(f"⚠️  Warning: clean-data.csv error ({e}). Safety detection may be limited.")
             self.df_symptoms = pd.DataFrame()
 
-        # --- C. EMBEDDING MODEL ---
+        # --- C. RAG KNOWLEDGE BASE (Animal_disease_spreadsheet) ---
+        try:
+            rag_candidates = [
+                "Animal_disease_spreadsheet_-_Sheet1.csv",
+                "Animal_disease_spreadsheet.csv",
+            ]
+            rag_path = next((p for p in rag_candidates if os.path.exists(p)), None)
+            if rag_path:
+                self.df_rag = pd.read_csv(rag_path)
+                
+                # IMPORTANT: Reset index to ensure Pandas ILOC perfectly matches PyTorch tensor indexing
+                self.df_rag.reset_index(drop=True, inplace=True) 
+                
+                # Rename unnamed column to Disease
+                self.df_rag = self.df_rag.rename(columns={"Unnamed: 0": "Disease"})
+                # Build rich combined text for embedding (symptoms + description)
+                self.df_rag['rag_text'] = self.df_rag.apply(self._build_rag_text, axis=1)
+                print(f"✅ RAG knowledge base loaded: {len(self.df_rag)} diseases.")
+            else:
+                print("⚠️  RAG knowledge base not found. Falling back to safety dataset only.")
+                self.df_rag = pd.DataFrame()
+        except Exception as e:
+            print(f"⚠️  RAG load error ({e}).")
+            self.df_rag = pd.DataFrame()
+
+        # --- D. EMBEDDING MODEL ---
         print("⏳ Loading embedding model...")
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+        # Safety dataset embeddings
         if not self.df_symptoms.empty:
             self.symptom_embeddings = self.embedding_model.encode(
                 self.df_symptoms["combined_text"].tolist(), convert_to_tensor=True
             )
-            print(f"✅ Embeddings built for {len(self.df_symptoms)} rows.")
+            print(f"✅ Safety embeddings built: {len(self.df_symptoms)} rows.")
+
+        # RAG knowledge base embeddings
+        if not self.df_rag.empty:
+            self.rag_embeddings = self.embedding_model.encode(
+                self.df_rag["rag_text"].tolist(), convert_to_tensor=True
+            )
+            print(f"✅ RAG embeddings built: {len(self.df_rag)} diseases.")
 
         self.status = "Ready"
-        print("✅ VetConnect AI Ready! Using GPT-4o-mini via OpenRouter")
-        print(f"⚠️  ENHANCED MODE: Multi-tier confidence system")
-        print(f"   - High confidence (0.7+): Direct advice")
-        print(f"   - Medium confidence (0.5-0.7): Ask clarifying questions")
-        print(f"   - Low confidence (<0.5): Extract symptoms and retry")
+        print("✅ VetConnect AI Ready! RAG mode active.")
+        print(f"   Safety DB : {len(self.df_symptoms)} rows (clean-data.csv)")
+        print(f"   RAG KB    : {len(self.df_rag)} diseases (Animal_disease_spreadsheet)")
+
+    def _build_rag_text(self, row) -> str:
+        """Build searchable text from a RAG knowledge base row"""
+        parts = []
+        if pd.notna(row.get('Disease', '')):
+            parts.append(str(row['Disease']))
+        if pd.notna(row.get('Symptoms', '')):
+            parts.append(str(row['Symptoms']))
+        if pd.notna(row.get('Description', '')):
+            # Include first 200 chars of description for context
+            parts.append(str(row['Description'])[:200])
+        return ' '.join(parts)
 
     # ──────────────────────────────────────────────────────────────────────────
     # INPUT SANITIZATION
     # ──────────────────────────────────────────────────────────────────────────
     def sanitize_input(self, text: str) -> str:
         """Remove potentially malicious input patterns"""
-        text = re.sub(r'<[^>]*>', '', text)  # Remove HTML tags
-        
-        # Block SQL injection patterns
+        text = re.sub(r'<[^>]*>', '', text)
         sql_keywords = (
             r'\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC|'
-            r'UNION|--|;|\/\*|\*\/|xp_|CAST\(|CONVERT\()\b'
+            r'UNION|--|;|\/\*|\*\/|xp_|CAST\(|CONVERT\()\\b'
         )
         text = re.sub(sql_keywords, '[BLOCKED]', text, flags=re.IGNORECASE)
-        
-        # Remove control characters
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
-        
-        # HTML entity encoding
         text = (text
                 .replace('&', '&amp;')
                 .replace('<', '&lt;')
                 .replace('>', '&gt;')
                 .replace('"', '&quot;')
                 .replace("'", '&#x27;'))
-        
         return text.strip()
 
     # ──────────────────────────────────────────────────────────────────────────
-    # SAFETY LAYER - Emergency Detection
+    # SAFETY LAYER
     # ──────────────────────────────────────────────────────────────────────────
     _undeniable_acute = [
         "seizure", "convulsion",
@@ -230,30 +255,25 @@ ABSOLUTE RULES — never violate any of these:
     ]
 
     def assess_severity(self, text: str) -> str:
-        """
-        Uses GPT-4o-mini to classify symptom severity.
-        Returns: "acute", "urgent", or "normal"
-        """
+        """Uses GPT-4o-mini to classify symptom severity"""
         prompt = (
             "You are a veterinary triage assistant. A pet owner sent this message:\n"
             f'"{text}"\n\n'
             "Classify the severity as ONE of these three options:\n\n"
-            "ACUTE   — The pet needs emergency care RIGHT NOW. "
-            "Signs: active bleeding, seizure, cannot breathe, collapse, confirmed poisoning, "
-            "loss of consciousness, or any condition where minutes matter.\n\n"
-            "URGENT  — The pet needs a vet within 24–48 hours but is NOT in immediate danger. "
-            "Signs: symptoms persisting for days/weeks, not responding to medication, "
-            "concerning but pet is still alert/drinking/moving, chronic worsening conditions.\n\n"
-            "NORMAL  — Routine concern. Pet is showing mild symptoms with no red flags. "
-            "Standard veterinary advice is appropriate.\n\n"
-            "IMPORTANT RULES:\n"
-            "- If the owner says the pet is still energetic, active, drinking, or alert, "
-            "it is NEVER 'acute' — classify as 'urgent' or 'normal'.\n"
-            "- A single mild symptom like slight loss of appetite with no other red flags is 'normal'.\n"
-            "- Symptoms lasting more than a few days or not improving with medication are 'urgent'.\n"
-            "- Only use 'acute' if there is clear evidence of an immediate life threat.\n"
-            "- Consider Tagalog words: maliksi/aktibo/masaya = energetic/active, "
-            "matamlay = lethargic, hindi kumakain = not eating, nagsusuka = vomiting.\n\n"
+            "ACUTE   — Emergency RIGHT NOW. ONLY for: active bleeding, seizure, "
+            "cannot breathe, collapse, confirmed poisoning, loss of consciousness.\n\n"
+            "URGENT  — Needs vet within 24-48 hours. ONLY when owner EXPLICITLY mentions: "
+            "duration of 3+ days, getting worse, wont stop, not improving, "
+            "multiple serious symptoms together, or visible pain/crying.\n\n"
+            "NORMAL  — Everything else. Single mild symptoms = ALWAYS normal. "
+            "Scratching, licking, sneezing, mild lethargy, not eating once = NORMAL. "
+            "When in doubt, default to NORMAL.\n\n"
+            "STRICT RULES:\n"
+            "- Default to NORMAL unless there is EXPLICIT evidence of urgency.\n"
+            "- Single symptom + NO duration stated = NORMAL.\n"
+            "- Only classify URGENT if owner explicitly states duration or worsening.\n"
+            "- Tagalog: maliksi/aktibo = active (normal), matamlay = lethargic, "
+            "hindi kumakain = not eating, nagsusuka = vomiting.\n\n"
             "Reply with ONLY one word: acute, urgent, or normal."
         )
         try:
@@ -266,13 +286,10 @@ ABSOLUTE RULES — never violate any of these:
             return "normal"
 
     def check_safety(self, text: str) -> Tuple[str, Optional[str]]:
-        """
-        FIXED: Now always returns a tuple (tier, message).
-        Returns (tier, message) where tier is "acute", "urgent", or "ok".
-        """
+        """Returns (tier, message) where tier is 'acute', 'urgent', or 'ok'."""
         text_lower = text.lower()
 
-        # Layer 1 — undeniable acute: always fires regardless of context
+        # Layer 1 — undeniable acute keywords
         if any(w in text_lower for w in self._undeniable_acute):
             return (
                 "acute",
@@ -283,9 +300,8 @@ ABSOLUTE RULES — never violate any of these:
                 "breathing difficulty, collapse, or poisoning."
             )
 
-        # Layer 2 — LLM severity assessment for everything else
+        # Layer 2 — LLM severity assessment
         tier = self.assess_severity(text)
-        
         if tier == "acute":
             return (
                 "acute",
@@ -294,157 +310,170 @@ ABSOLUTE RULES — never violate any of these:
                 "Do not wait — this situation requires urgent care."
             )
         elif tier == "urgent":
-            return ("urgent", None)  # Handled by LLM response later
+            return ("urgent", None)
         else:
-            return ("ok", "")  # Routine case - proceed normally
+            return ("ok", "")
 
     # ──────────────────────────────────────────────────────────────────────────
-    # ENHANCED: Multi-Layer Symptom Matching
+    # RAG — Retrieval-Augmented Generation
     # ──────────────────────────────────────────────────────────────────────────
-    
-    def extract_symptoms_from_narrative(self, text: str, animal: str = None) -> str:
+    def retrieve_rag_context(self, query: str, animal: str = None, top_k: int = RAG_TOP_K) -> List[Dict]:
         """
-        ENHANCED: Convert behavioral/narrative description to medical symptoms
-        
-        Examples:
-        - "didn't play today" → "lethargy, loss of energy, depression"
-        - "won't eat breakfast" → "loss of appetite, anorexia"
-        - "breathing funny" → "respiratory difficulty, dyspnea"
+        Retrieve top-K most relevant disease records from the RAG knowledge base.
+        Includes Metadata Filtering by animal species to prevent cross-species hallucinations.
         """
-        animal_note = f" for a {animal}" if animal else ""
+        if self.df_rag.empty or self.rag_embeddings is None:
+            return []
+
+        # ── Metadata Filtering Step (Isolating species) ───────────────────────
+        valid_indices = list(range(len(self.df_rag)))
         
-        prompt = f"""You are a veterinary assistant extracting medical symptoms from a pet owner's description{animal_note}.
-
-Owner's description: "{text}"
-
-Convert behavioral observations and narrative descriptions into clinical veterinary symptom terms.
-
-Common conversions:
-- "didn't play", "less active", "just lying around" → lethargy, loss of energy, depression
-- "won't eat", "not eating", "refusing food" → loss of appetite, anorexia
-- "breathing hard", "breathing fast", "breathing funny" → respiratory distress, dyspnea, tachypnea
-- "limping", "favoring leg", "won't walk" → lameness, pain, reluctance to move
-- "throwing up", "vomited" → vomiting, emesis
-- "loose stool", "watery poop" → diarrhea
-- "scratching a lot" → pruritus, itching
-- "drinking a lot" → polydipsia, increased thirst
-- "peeing a lot" → polyuria, increased urination
-- "seems off", "not himself", "acting weird" → behavioral change, malaise
-
-Return ONLY the clinical symptom names, comma-separated. No explanations.
-If the description is already using medical terms, return them as-is.
-If multiple symptoms are implied, include all of them.
-
-Clinical symptoms:"""
-        
-        try:
-            result = self.ask_llm_direct(prompt).strip()
-            # Clean up the response
-            result = result.replace('"', '').replace("'", '').strip('.,;:')
-            print(f"[SYMPTOM EXTRACTION] '{text}' → '{result}'")
-            return result
-        except Exception as e:
-            print(f"[SYMPTOM EXTRACTION ERROR] {e}")
-            return text  # Fallback to original
-
-    def generate_clarification_questions(self, query: str, match: Optional[Dict], score: float, animal: str = None) -> str:
-        """
-        ENHANCED: Generate specific clarifying questions based on medium-confidence match
-        
-        When similarity is 0.5-0.7, we're not confident enough to give advice,
-        but we have some idea what it might be. Ask targeted questions.
-        """
-        animal_name = animal if animal else "your pet"
-        
-        # If we have a potential match, ask about those specific symptoms
-        if match:
-            disease = match.get('Disease', 'a condition')
-            symptoms = match.get('Symptoms_Text', '')
+        if animal:
+            animal_lower = animal.lower()
+            filtered_indices = []
+            has_animal_col = 'Animal' in self.df_rag.columns
             
-            return (
-                f"I want to make sure I understand {animal_name}'s symptoms correctly to give you the best advice. "
-                f"Based on what you described, I'm wondering if {animal_name} is showing any of these signs:\n\n"
-                f"• Lethargy (very tired, lying down more than usual)\n"
-                f"• Loss of appetite (not eating or eating less)\n"
-                f"• Vomiting or diarrhea\n"
-                f"• Weakness or difficulty moving\n"
-                f"• Any fever or feeling warm to touch\n\n"
-                f"Could you let me know which of these, if any, you're noticing? "
-                f"This will help me give you more accurate guidance!"
-            )
-        else:
-            # Generic clarification when no match at all
-            return (
-                f"I want to give you the most accurate advice for {animal_name}. "
-                f"Could you describe the specific symptoms you're seeing? For example:\n\n"
-                f"• Is {animal_name} vomiting or having diarrhea?\n"
-                f"• Has eating or drinking changed?\n"
-                f"• Are there any changes in energy levels or behavior?\n"
-                f"• Any coughing, sneezing, or breathing issues?\n\n"
-                f"The more specific you can be, the better I can help!"
-            )
-
-    def handle_consultation_reason_enhanced(
-        self, 
-        raw_input: str, 
-        animal: str = None
-    ) -> Tuple[str, Optional[Dict], float, Optional[str]]:
-        """
-        ENHANCED: Multi-layer symptom matching with intelligent fallbacks
-        
-        Returns: (confidence_tier, match, score, clarification_message)
-        
-        Confidence tiers:
-        - "high" (0.7+): Direct match, provide advice
-        - "medium" (0.5-0.7): Possible match, ask clarifying questions
-        - "extracted" (0.7+ after extraction): Match found after symptom extraction
-        - "low" (<0.5): No confident match, ask for more details
-        """
-        
-        # Stage 1: Try direct match
-        match, score = self.find_best_match(raw_input, 'symptoms')
-        
-        print(f"[ENHANCED MATCH] Direct match score: {score:.3f}")
-        
-        # HIGH CONFIDENCE (0.7+) - Provide advice directly
-        if score >= SIMILARITY_THRESHOLD_HIGH:
-            print(f"[ENHANCED MATCH] ✅ High confidence match")
-            return ("high", match, score, None)
-        
-        # MEDIUM CONFIDENCE (0.5-0.7) - Ask for clarification
-        elif score >= SIMILARITY_THRESHOLD_MED:
-            print(f"[ENHANCED MATCH] ⚠️ Medium confidence - requesting clarification")
-            clarification = self.generate_clarification_questions(raw_input, match, score, animal)
-            return ("medium", match, score, clarification)
-        
-        # LOW CONFIDENCE (<0.5) - Extract symptoms and retry
-        else:
-            print(f"[ENHANCED MATCH] 🔄 Low confidence - extracting symptoms")
-            extracted_symptoms = self.extract_symptoms_from_narrative(raw_input, animal)
-            
-            # Retry with extracted symptoms
-            if extracted_symptoms and extracted_symptoms != raw_input:
-                match_retry, score_retry = self.find_best_match(extracted_symptoms, 'symptoms')
-                print(f"[ENHANCED MATCH] Extracted match score: {score_retry:.3f}")
+            for idx in valid_indices:
+                row = self.df_rag.iloc[idx]
+                is_match = False
                 
-                if score_retry >= SIMILARITY_THRESHOLD_HIGH:
-                    print(f"[ENHANCED MATCH] ✅ High confidence after extraction")
-                    return ("extracted", match_retry, score_retry, None)
-                elif score_retry >= SIMILARITY_THRESHOLD_MED:
-                    print(f"[ENHANCED MATCH] ⚠️ Medium confidence after extraction")
-                    clarification = self.generate_clarification_questions(extracted_symptoms, match_retry, score_retry, animal)
-                    return ("medium", match_retry, score_retry, clarification)
+                if has_animal_col and pd.notna(row['Animal']):
+                    if animal_lower in str(row['Animal']).lower():
+                        is_match = True
+                else:
+                    # Fallback: Check if animal name is in Disease or Description
+                    text_to_check = str(row.get('Disease', '')) + " " + str(row.get('Description', ''))
+                    if animal_lower in text_to_check.lower():
+                        is_match = True
+                        
+                if is_match:
+                    filtered_indices.append(idx)
+                    
+            # Only apply filter if we found matches (fallback to all if filter is too strict/dataset missing labels)
+            if filtered_indices:
+                valid_indices = filtered_indices
+                print(f"[RAG] Metadata filter applied: {len(valid_indices)} records found for '{animal}'")
+            else:
+                print(f"[RAG] Metadata filter found no exact matches for '{animal}', searching entire DB.")
+
+        # Subset the embeddings tensor based on filtered indices
+        filtered_embeddings = self.rag_embeddings[valid_indices]
+
+        # ── Keyword Extraction Step ───────────────────────────────────────────
+        # Extract clinical symptom keywords BEFORE embedding search
+        extracted = self.extract_symptoms_from_narrative(query, animal=animal)
+        search_query = extracted if extracted and extracted != query else query
+        print(f"[RAG] Search query after extraction: '{search_query[:60]}'")
+
+        query_embedding = self.embedding_model.encode(search_query, convert_to_tensor=True)
+        
+        # Calculate Cosine Similarity ONLY against the filtered embeddings
+        scores = util.cos_sim(query_embedding, filtered_embeddings)[0]
+
+        # Get top-K indices sorted by score
+        top_local_indices = scores.argsort(descending=True)[:top_k].tolist()
+
+        results = []
+        for local_idx in top_local_indices:
+            score = scores[local_idx].item()
+            if score < 0.2:  # Skip very irrelevant results
+                continue
+                
+            # Map the local tensor index back to the original dataframe index
+            original_idx = valid_indices[local_idx]
+            row = self.df_rag.iloc[original_idx]
             
-            # Still no good match - ask for details
-            print(f"[ENHANCED MATCH] ❌ No confident match found")
-            clarification = self.generate_clarification_questions(raw_input, None, score, animal)
-            return ("low", None, score, clarification)
+            results.append({
+                "disease": str(row.get("Disease", "Unknown")),
+                "symptoms": str(row.get("Symptoms", "")),
+                "description": str(row.get("Description", ""))[:300],
+                "recognition": str(row.get("Recognition", ""))[:200],
+                "treatment": str(row.get("Treatment", ""))[:200],
+                "advice": str(row.get("Advice/ Prevention", ""))[:200],
+                "similar_conditions": str(row.get("Similar Conditions", "")),
+                "score": round(score, 4),
+            })
+
+        print(f"[RAG] Retrieved {len(results)} relevant records for query: '{query[:50]}'")
+        for r in results[:3]:
+            print(f"  → {r['disease']} (score: {r['score']})")
+
+        return results
+
+    def build_rag_prompt(
+        self,
+        query: str,
+        rag_results: List[Dict],
+        known_animal: str = None,
+        is_urgent: bool = False
+    ) -> str:
+        """
+        Build a GPT prompt using retrieved RAG context.
+        GPT reasons over multiple retrieved records instead of a single match.
+        """
+        subject = known_animal if known_animal else "the pet"
+
+        if not rag_results:
+            # No RAG results — safe fallback
+            urgency_note = (
+                f"Recommend booking a vet visit within 24 hours through this chat. "
+                f"End with: 'If {subject} starts struggling to breathe, shows pale or blue gums, "
+                f"or collapses, please go to an emergency clinic immediately.'"
+                if is_urgent else
+                "Recommend proceeding with a consultation booking through this chat."
+            )
+            return (
+                f"The owner has a {subject} and reports: {query}. "
+                f"No specific matching condition was found in our veterinary knowledge base. "
+                f"Write a 2-3 sentence professional response that acknowledges the symptoms, "
+                f"{urgency_note} "
+                f"Do NOT suggest any specific condition, drug, or treatment. "
+                "End with 'Only a licensed veterinarian can confirm the exact cause.'"
+            )
+
+        # Build context block from retrieved records
+        context_lines = []
+        for i, r in enumerate(rag_results, 1):
+            context_lines.append(
+                f"[Record {i}] Disease: {r['disease']}\n"
+                f"  Symptoms: {r['symptoms']}\n"
+                f"  Description: {r['description']}\n"
+                f"  Recognition: {r['recognition']}\n"
+                f"  Treatment context: {r['treatment']}\n"
+                f"  Prevention/Advice: {r['advice']}"
+            )
+        context_block = "\n\n".join(context_lines)
+
+        urgency_instruction = ""
+        if is_urgent:
+            urgency_instruction = (
+                f"\n4. Recommend booking a vet visit within 24 hours through this chat.\n"
+                f"5. End with: 'If {subject} starts struggling to breathe, shows pale or blue gums, "
+                f"or collapses, please go to an emergency clinic immediately.'"
+            )
+
+        return (
+            f"You are VetBot for VetConnect Veterinary Clinic.\n\n"
+            f"The owner has a {subject} and reports: \"{query}\"\n\n"
+            f"Below are the most relevant records from our veterinary knowledge base "
+            f"(retrieved by semantic search — sorted by relevance):\n\n"
+            f"{context_block}\n\n"
+            f"INSTRUCTIONS:\n"
+            f"1. Use ONLY the information above to inform your response. "
+            f"Do NOT add conditions, drugs, dosages, or information not present in these records.\n"
+            f"2. You may reference the most relevant condition(s) from the records above, "
+            f"but NEVER state a diagnosis as fact. Use 'Possible causes include' or 'This may be related to'.\n"
+            f"3. Write a 2-3 sentence empathetic, professional response for a {subject} owner.\n"
+            f"{urgency_instruction}\n"
+            f"Always end with: 'Only a licensed veterinarian can confirm the exact cause.'\n"
+            f"Only refer to the {subject}. Never name another species."
+        )
 
     # ──────────────────────────────────────────────────────────────────────────
-    # CSV SYMPTOM MATCHING
+    # SAFETY DATASET MATCHING (kept for is_dangerous check)
     # ──────────────────────────────────────────────────────────────────────────
     def find_best_match(self, query: str, match_type: str = "symptoms") -> Tuple[Optional[Dict], float]:
-        """Find best matching entry in symptom database using embeddings"""
+        """Find best matching entry in safety symptom database"""
         if self.df_symptoms.empty or self.symptom_embeddings is None:
             return None, 0.0
 
@@ -453,14 +482,60 @@ Clinical symptoms:"""
         best_idx = scores.argmax().item()
         best_score = scores[best_idx].item()
 
-        # Return match regardless of threshold - let caller decide what to do
         return self.df_symptoms.iloc[best_idx].to_dict(), best_score
 
     def is_match_dangerous(self, match: Optional[Dict]) -> bool:
-        """Check if a CSV match is flagged as dangerous"""
+        """Check if a safety dataset match is flagged as dangerous"""
         if match is None:
             return False
         return match.get('is_dangerous', False)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # SYMPTOM EXTRACTION (for narrative inputs)
+    # ──────────────────────────────────────────────────────────────────────────
+    def extract_symptoms_from_narrative(self, text: str, animal: str = None) -> str:
+        """Convert behavioral/narrative description to medical symptom terms"""
+        animal_note = f" for a {animal}" if animal else ""
+        prompt = f"""You are a veterinary assistant extracting medical symptoms from a pet owner's description{animal_note}.
+
+Owner's description: "{text}"
+
+Convert behavioral observations into clinical veterinary symptom terms.
+Return ONLY the clinical symptom names, comma-separated. No explanations.
+
+Clinical symptoms:"""
+        try:
+            result = self.ask_llm_direct(prompt).strip()
+            result = result.replace('"', '').replace("'", '').strip('.,;:')
+            print(f"[SYMPTOM EXTRACTION] '{text[:50]}' → '{result[:50]}'")
+            return result
+        except Exception as e:
+            print(f"[SYMPTOM EXTRACTION ERROR] {e}")
+            return text
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # COMPLAINT SUMMARIZER
+    # ──────────────────────────────────────────────────────────────────────────
+    def summarize_complaint(self, raw_reason: str) -> str:
+        """Converts raw symptom description into a concise medical complaint label"""
+        prompt = (
+            f'You are a veterinary receptionist summarizing a pet owner\'s complaint.\n'
+            f'Owner\'s description: "{raw_reason}"\n\n'
+            f'Rules:\n'
+            f'1. Return ONLY a short medical complaint label of 3–6 words.\n'
+            f'2. Use Title Case.\n'
+            f'3. Be specific but concise.\n'
+            f'4. Do NOT include pet names, owner names, or filler words.\n'
+            f'Label:'
+        )
+        try:
+            result = self.ask_llm_direct(prompt).strip().strip('"\'.,;:')
+            if not result or len(result.split()) > 10:
+                words = raw_reason.strip().split()
+                result = ' '.join(words[:6]).title() + ('…' if len(words) > 6 else '')
+            return result
+        except Exception:
+            return raw_reason[:60]
 
     # ──────────────────────────────────────────────────────────────────────────
     # BREED VALIDATION
@@ -468,36 +543,32 @@ Clinical symptoms:"""
     def validate_breed_for_species(self, breed: str, species: str) -> bool:
         """Validate that a breed matches the animal species"""
         if species not in self.BREED_WHITELIST:
-            return True  # No whitelist for this species, accept any
-        
+            return True
         whitelist = self.BREED_WHITELIST[species]
         breed_lower = breed.lower().strip()
-        
         return any(w in breed_lower or breed_lower in w for w in whitelist)
 
     # ──────────────────────────────────────────────────────────────────────────
-    # LLM CALLS - Using GPT-4o-mini via OpenRouter
+    # LLM CALLS
     # ──────────────────────────────────────────────────────────────────────────
     def _enforce_rate_limit(self):
-        """Enforce rate limiting between API calls"""
         elapsed = time.time() - self.last_llm_call
         if elapsed < RATE_LIMIT_SECONDS:
             time.sleep(RATE_LIMIT_SECONDS - elapsed)
         self.last_llm_call = time.time()
 
     def ask_llm(self, user_prompt: str) -> str:
-        """Call LLM with system instruction and rate limiting"""
+        """Call LLM with system instruction"""
         self._enforce_rate_limit()
         return self.ask_llm_direct_with_system(user_prompt, self.system_instruction)
 
     def ask_llm_direct(self, user_prompt: str) -> str:
-        """Direct LLM call WITHOUT system instruction (for internal tasks)"""
+        """Direct LLM call without system instruction (for internal tasks)"""
         self._enforce_rate_limit()
         return self.ask_llm_direct_with_system(user_prompt, system_msg=None)
 
     def ask_llm_direct_with_system(self, user_prompt: str, system_msg: Optional[str]) -> str:
         """Core LLM call with optional system message"""
-        
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {API_KEY}",
@@ -512,12 +583,10 @@ Clinical symptoms:"""
             "messages": messages,
             "temperature": 0.7,
         }
-        
         try:
             print(f"[DEBUG] Calling OpenRouter API ({LLM_MODEL})...")
             res = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
             print(f"[DEBUG] Status Code: {res.status_code}")
-            
             if res.status_code == 200:
                 result = res.json()
                 content = result["choices"][0]["message"]["content"]
@@ -530,7 +599,6 @@ Clinical symptoms:"""
                     "Please book a consultation through VetConnect so a vet can assess your pet directly. "
                     "Only a licensed veterinarian can confirm the exact cause."
                 )
-                
         except Exception as e:
             print(f"[LLM ERROR] {e}")
             return (
@@ -540,18 +608,14 @@ Clinical symptoms:"""
             )
 
     # ──────────────────────────────────────────────────────────────────────────
-    # ENTITY EXTRACTION (with Tagalog support)
+    # ENTITY EXTRACTION
     # ──────────────────────────────────────────────────────────────────────────
     def extract_entity_with_ai(self, user_input: str, entity_type: str, exclude: str = None) -> str:
-        """
-        Extract specific entities (service, animal, breed, pet name) from user input.
-        Handles English and Tagalog inputs.
-        """
+        """Extract specific entities from user input with Tagalog support"""
         exclude_note = (
             f'\n5. Do NOT return "{exclude}" — that is the pet\'s name, not the {entity_type}.'
             if exclude else ""
         )
-        
         tagalog_note = ""
         if entity_type in ("animal species", "animal"):
             tagalog_note = (
@@ -562,53 +626,18 @@ Clinical symptoms:"""
                 "pato → Duck | kalabaw → Buffalo | buriko → Donkey | mula → Mule\n"
                 "Always return the English equivalent, never the Tagalog word."
             )
-        
         prompt = (
             f'TASK: Extract the {entity_type} from the user\'s input.\n'
             f'USER INPUT: "{user_input}"\n'
             f'RULES:\n'
             f'1. Return ONLY the {entity_type} in English (no extra words).\n'
-            f'2. If a correction is present (e.g. "Wait no it\'s Coco"), extract the corrected value.\n'
+            f'2. If a correction is present, extract the corrected value.\n'
             f'3. If no valid {entity_type} found, return "None".\n'
             f'4. Remove punctuation. Use Title Case.{exclude_note}{tagalog_note}\n'
             f'Output:'
         )
-        
         raw = self.ask_llm_direct(prompt).strip().replace('"', '').replace("'", "")
         return raw.title()
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # COMPLAINT SUMMARIZER
-    # ──────────────────────────────────────────────────────────────────────────
-    def summarize_complaint(self, raw_reason: str) -> str:
-        """
-        Converts raw symptom description into a concise medical complaint label.
-        e.g. "my dog has been coughing for a month" → "Chronic Cough"
-        """
-        prompt = (
-            f'You are a veterinary receptionist summarizing a pet owner\'s complaint.\n'
-            f'Owner\'s description: "{raw_reason}"\n\n'
-            f'Rules:\n'
-            f'1. Return ONLY a short medical complaint label of 3–6 words.\n'
-            f'2. Use Title Case (e.g. "Chronic Cough Unresponsive to Medication").\n'
-            f'3. Be specific but concise — capture the main symptom and any key context.\n'
-            f'4. Do NOT include pet names, owner names, or filler words.\n'
-            f'5. Do NOT add explanation or punctuation — just the label.\n'
-            f'Examples:\n'
-            f'  "my dog keeps scratching but i don\'t see fleas" → Persistent Scratching, No Fleas Visible\n'
-            f'  "not eating for 2 days and very tired" → Loss of Appetite and Lethargy\n'
-            f'  "has been vomiting since yesterday after eating" → Vomiting After Eating\n'
-            f'  "coughing for a month even on meds" → Chronic Cough Unresponsive to Medication\n'
-            f'Label:'
-        )
-        try:
-            result = self.ask_llm_direct(prompt).strip().strip('"\'.,;:')
-            if not result or len(result.split()) > 10:
-                words = raw_reason.strip().split()
-                result = ' '.join(words[:6]).title() + ('…' if len(words) > 6 else '')
-            return result
-        except Exception:
-            return raw_reason[:60]
 
     # ──────────────────────────────────────────────────────────────────────────
     # DATETIME VALIDATION
@@ -651,13 +680,3 @@ Clinical symptoms:"""
                 "Sorry, our clinic is closed at that time. "
                 "We are open Monday–Saturday, 7:00 AM – 8:00 PM only."
             )
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # BLOCKCHAIN - Transaction Hash Generation
-    # ──────────────────────────────────────────────────────────────────────────
-    def generate_transaction_hash(self, booking_data: Dict[str, Any]) -> str:
-        """Generate an immutable SHA-256 hash for the appointment"""
-        payload = {**booking_data, "_timestamp": time.time()}
-        raw_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
-        hash_hex = hashlib.sha256(raw_bytes).hexdigest()
-        return f"0x{hash_hex}"

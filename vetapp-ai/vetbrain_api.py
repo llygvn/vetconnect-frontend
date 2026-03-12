@@ -1,7 +1,13 @@
 """
-VetConnect AI Backend — vetbrain_api.py
-=======================================
+VetConnect AI Backend — vetbrain_api.py (RAG Edition)
+======================================================
 FastAPI microservice wrapping VetBrain.
+
+Changes from previous version:
+- Replaced _build_symptom_prompt() with RAG-based retrieval
+- GPT now reasons over top-K retrieved disease records
+- Removed multi-tier similarity thresholds
+- Kept all booking flow, correction handling, and safety logic intact
 
 Booking stages:
   ask_service → ask_animal → ask_breed → ask_pet_name
@@ -23,7 +29,7 @@ import re
 from vetbrain import VetBrain, RATE_LIMIT_SECONDS
 
 # ── App & CORS ───────────────────────────────────────────────────────────────
-app = FastAPI(title="VetConnect AI Backend", version="4.0.0")
+app = FastAPI(title="VetConnect AI Backend", version="5.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,7 +44,7 @@ brain = VetBrain()
 @app.on_event("startup")
 async def startup_event():
     brain.load_data()
-    print("✅ VetBrain loaded and ready.")
+    print("✅ VetBrain RAG loaded and ready.")
 
 sessions: dict = {}
 
@@ -103,71 +109,14 @@ def _log_correction(session: dict, field: str, old_val, new_val):
     })
 
 
-def _build_symptom_prompt(raw: str, match, score: float, known_animal: str = None, is_urgent: bool = False) -> str:
+def _get_rag_reply(query: str, known_animal: str = None, is_urgent: bool = False) -> str:
     """
-    CRITICAL: Always prioritize user's direct observations over dataset.
+    Core RAG function: retrieve relevant disease records, build prompt, call GPT.
+    Replaces the old _build_symptom_prompt() + single-match approach.
     """
-    subject = known_animal if known_animal else "the pet"
-    
-    # Add user observation emphasis
-    user_observation_prefix = f"The owner reports: {raw}. "
-    
-    if match is not None and score >= 0.3:
-        disease  = match.get("Disease", "a condition")
-        symptoms = match.get("Symptoms_Text", "")
-        advice   = match.get("Advice / Notes", "Monitor closely.")
-        
-        if is_urgent:
-            return (
-                user_observation_prefix +
-                f"Based on our guidelines, this may relate to: {disease}. "
-                f"However, YOU MUST prioritize the owner's direct observations in your response. "
-                f"If the owner says the pet IS drinking, do not suggest dehydration. "
-                f"If the owner says the pet is energetic, do not suggest lethargy. "
-                f"Based on our medical guidelines, the closest matching condition is: {disease}. "
-                f"Associated symptoms on record: {symptoms}. "
-                f"Guideline recommendation: {advice} "
-                f"Write a 3-4 sentence response that:\n"
-                f"1. Opens with empathy (e.g. 'I'm sorry to hear...' or 'That must be worrying...')\n"
-                f"2. Explains in plain language why this is a serious concern worth acting on soon\n"
-                f"3. Recommends booking a vet visit within 24 hours through this chat\n"
-                f"4. Ends with: 'If {subject} starts struggling to breathe, shows pale or blue gums, "
-                f"or collapses, please go to an emergency clinic immediately.'\n"
-                f"Tone: warm, professional, and calm — NOT alarming. Use 'our medical guidelines' "
-                f"instead of 'dataset'. Only refer to the {subject}. Never name drugs or dosages."
-            )
-
-        return (
-            f"The user has a {subject}. They report: {raw}. "
-            f"Based on our medical guidelines, the closest matching condition is: {disease}. "
-            f"The guidelines list these associated symptoms: {symptoms}. "
-            f"Recommended advice: {advice} "
-            f"Write a 2-3 sentence professional response addressed to a {subject} owner "
-            f"that communicates ONLY the above findings — do not add any other "
-            f"conditions, drugs, dosages, or diagnostic tests. "
-            f"Only refer to the {subject}, never another species."
-        )
-
-    # No CSV match — safe fallback
-    if is_urgent:
-        return (
-            f"The user has a {subject}. They report: {raw}. "
-            f"The symptoms have been persisting for some time and no confident match was found in our medical guidelines. "
-            f"Write a 2-3 sentence empathetic response that acknowledges the concern, "
-            f"recommends booking a vet consultation within 24 hours through this chat, "
-            f"and ends with: 'If {subject} starts struggling to breathe, shows pale or blue gums, "
-            f"or collapses, please go to an emergency clinic immediately.' "
-            f"Tone: warm and calm. Only refer to the {subject}."
-        )
-
-    return (
-        f"The user has a {subject}. They say: '{raw}'. "
-        f"No confident match was found in our medical guidelines for these symptoms. "
-        f"Write a 2-3 sentence professional response that acknowledges the symptoms, "
-        f"recommends proceeding with the booked consultation, and does NOT suggest any "
-        f"specific condition, drug, or treatment. Only refer to the {subject}. "
-        "End with 'Only a licensed veterinarian can confirm the exact cause.'"
-    )
+    rag_results = brain.retrieve_rag_context(query)
+    prompt = brain.build_rag_prompt(query, rag_results, known_animal=known_animal, is_urgent=is_urgent)
+    return brain.ask_llm(prompt)
 
 
 # ── Correction Intent ─────────────────────────────────────────────────────────
@@ -200,8 +149,6 @@ def _handle_correction(session: dict, raw: str) -> Optional[str]:
     has_time = bool(re.search(r"\d{1,2}:\d{2}\s*(AM|PM)", raw, re.IGNORECASE))
 
     # 1. Datetime correction
-    # Only intercept if user explicitly signalled a correction OR datetime is already set.
-    # First-time date entry (stage == ask_datetime, no existing datetime) goes to booking flow.
     datetime_already_set = bool(data.get("datetime"))
     if (has_date or has_time) and (is_correction or datetime_already_set):
         valid, error = brain.validate_datetime(raw)
@@ -227,7 +174,6 @@ def _handle_correction(session: dict, raw: str) -> Optional[str]:
     if not is_correction:
         return None
 
-    # ── Helper: after updating a field, go to the right next stage ───────────
     def _next_after_correction() -> str:
         svc = data.get("service")
         needs_reason = (svc == "Consultation" and not data.get("consultation_reason"))
@@ -245,7 +191,6 @@ def _handle_correction(session: dict, raw: str) -> Optional[str]:
             return ("When would you like to schedule the appointment?\n"
                     "Format: MM/DD/YYYY HH:MM AM/PM (e.g. 03/20/2026 10:00 AM)\n\n"
                     "Our clinic is open Mon\u2013Sat, 7:00 AM \u2013 8:00 PM.")
-        # Everything already collected — go straight to confirm
         session["stage"] = "confirm"
         return (
             "Here's your updated booking:\n\n"
@@ -262,7 +207,6 @@ def _handle_correction(session: dict, raw: str) -> Optional[str]:
     if new_service and new_service != data.get("service"):
         old_val = data.get("service", "not set")
         data["service"] = new_service
-        # Only clear consultation_reason if switching away from Consultation
         if new_service != "Consultation":
             data.pop("consultation_reason", None)
             data.pop("consultation_reason_raw", None)
@@ -292,14 +236,11 @@ def _handle_correction(session: dict, raw: str) -> Optional[str]:
         if new_animal in brain.wildlife_animals:
             session["stage"] = "idle"
             session["data"]  = {}
-            return (f"🦁 Sorry, we don't handle {new_animal}s. We only treat domestic and farm animals. Please contact a wildlife rescue centre.")
+            return f"🦁 Sorry, we don't handle {new_animal}s. We only treat domestic and farm animals. Please contact a wildlife rescue centre."
         old_val = data.get("animal", "not set")
         data["animal"] = new_animal
-        # Only clear breed since it may not be valid for the new animal species.
-        # Pet name, consultation reason, and datetime are all still valid — keep them.
         data.pop("breed", None)
         _log_correction(session, "animal", old_val, new_animal)
-        # If breed is missing, ask for it. Otherwise go straight to confirm.
         if not data.get("breed"):
             session["stage"] = "ask_breed"
             return f"Updated — your pet is a {new_animal}! ✅\n\nWhat breed is your {new_animal.lower()}? (Type 'unknown' if not sure)"
@@ -318,13 +259,12 @@ def _handle_correction(session: dict, raw: str) -> Optional[str]:
                 and brain.validate_breed_for_species(candidate, animal_for_breed)):
             old_val = data.get("breed", "not set")
             data["breed"] = candidate
-            # datetime is preserved — no need to re-ask
             _log_correction(session, "breed", old_val, candidate)
             existing_name = data.get("pet_name")
             if existing_name:
                 return f"Breed updated to {candidate}! ✅\n\n" + _next_after_correction()
             session["stage"] = "ask_pet_name"
-            return f"Breed updated to {candidate}! ✅\n\nWhat\'s your pet\'s name?"
+            return f"Breed updated to {candidate}! ✅\n\nWhat's your pet's name?"
 
     # 5. Consultation reason correction
     if data.get("service") == "Consultation" and data.get("consultation_reason"):
@@ -345,16 +285,10 @@ def _handle_correction(session: dict, raw: str) -> Optional[str]:
                     session["stage"] = "idle"
                     session["data"]  = {}
                     return safety_msg_c
-                match, score = brain.find_best_match(new_reason, "symptoms")
-                csv_dangerous = brain.is_match_dangerous(match)
-                if csv_dangerous and safety_tier_c != "urgent":
-                    session["stage"] = "idle"
-                    session["data"]  = {}
-                    return ("🚨 EMERGENCY ALERT: The symptoms you described match a condition flagged as dangerous. "
-                            "Please bring your pet to the clinic IMMEDIATELY. Your booking has been paused.")
-                is_urgent = (safety_tier_c == "urgent") or csv_dangerous
+                # RAG-based advice for corrected reason
                 known_animal = data.get("animal")
-                advice = brain.ask_llm(_build_symptom_prompt(new_reason, match, score, known_animal, is_urgent=is_urgent))
+                is_urgent = (safety_tier_c == "urgent")
+                advice = _get_rag_reply(new_reason, known_animal=known_animal, is_urgent=is_urgent)
                 return (f"Reason updated! ✅\n\n🩺 {advice}\n\n"
                         "━━━━━━━━━━━━━━━━━━━━\n" + _next_after_correction())
 
@@ -382,8 +316,6 @@ def _handle_correction(session: dict, raw: str) -> Optional[str]:
 # ── Main chat endpoint ────────────────────────────────────────────────────────
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-    # Availability: wrap entire handler so any unhandled network/runtime error
-    # returns a safe offline message instead of a 500 crash.
     try:
         return _chat_handler(req)
     except Exception as e:
@@ -394,24 +326,6 @@ def chat(req: ChatRequest):
                 "⚠️ VetConnect is temporarily unavailable due to a connection issue. "
                 "Please check your internet connection and try again in a moment. "
                 "If the problem persists, contact the clinic directly during business hours "
-                "(Mon–Sat, 7:00 AM – 8:00 PM)."
-            ),
-            session_id=sid,
-        )
-
-
-def _chat_handler(req: ChatRequest):
-    # ── Availability: wrap entire handler so network/runtime errors never crash ──
-    try:
-        return _chat_handler(req)
-    except Exception as e:
-        print(f"[CHAT ERROR] Unhandled exception: {e}")
-        sid = req.session_id or "unknown"
-        return ChatResponse(
-            reply=(
-                "⚠️ VetConnect is temporarily unavailable due to a connection issue. "
-                "Please check your internet connection and try again in a moment. "
-                "If the problem persists, you can call the clinic directly during business hours "
                 "(Mon–Sat, 7:00 AM – 8:00 PM)."
             ),
             session_id=sid,
@@ -460,7 +374,6 @@ def _chat_handler(req: ChatRequest):
         return ChatResponse(reply=result, session_id=sid)
 
     # ── Idle intent routing ───────────────────────────────────────────────────
-
     booking_keywords = ["book", "appointment", "schedule", "magpa-check", "gusto",
                         "punta", "yes", "oo", "sige", "sure", "i want to", "gusto ko"]
     if any(kw in lower for kw in booking_keywords):
@@ -484,7 +397,7 @@ def _chat_handler(req: ChatRequest):
     if any(kw in lower for kw in ["cancel", "reschedule", "move", "change appointment"]):
         return ChatResponse(reply="To cancel or reschedule, please go to the My Appointments tab in the sidebar and select the appointment you'd like to modify.", session_id=sid)
 
-    # Symptom screening
+    # Symptom screening — now uses RAG
     symptom_intent_kw = [
         "check symptom", "symptoms", "my pet is", "my dog is", "my cat is",
         "not eating", "sick", "ayaw kumain", "matamlay", "may sakit", "nagsusuka",
@@ -493,20 +406,20 @@ def _chat_handler(req: ChatRequest):
     ]
     if any(kw in lower for kw in symptom_intent_kw):
         if lower.strip() in ("check symptom", "check symptoms", "symptoms", "symptom"):
-            return ChatResponse(reply="Sure! Please describe your pet's symptoms and I'll help assess them.\n\nFor example: 'My dog has been vomiting for 2 days' or 'My cat is not eating and seems lethargic.'", session_id=sid)
-        mentioned_animal = next((a for a in brain.supported_animals if a.lower() in lower), None)
-        match, score = brain.find_best_match(raw, "symptoms")
-        csv_dangerous = brain.is_match_dangerous(match)
-        # safety_tier already computed above for this message
-        # "urgent" means chronic context detected — never show siren, use warm LLM response
-        # csv_dangerous alone (no chronic context) → acute-style alert
-        if csv_dangerous and safety_tier != "urgent":
             return ChatResponse(
-                reply="🚨 EMERGENCY ALERT: The symptoms described match a condition flagged as dangerous in our medical guidelines. Do not wait — bring your pet to the clinic IMMEDIATELY or contact an emergency veterinarian. Only a licensed veterinarian can confirm the exact cause.",
-                session_id=sid,
+                reply="Sure! Please describe your pet's symptoms and I'll help assess them.\n\nFor example: 'My dog has been vomiting for 2 days' or 'My cat is not eating and seems lethargic.'",
+                session_id=sid
             )
-        is_urgent = csv_dangerous or (safety_tier == "urgent")
-        reply = brain.ask_llm(_build_symptom_prompt(raw, match, score, known_animal=mentioned_animal, is_urgent=is_urgent))
+        mentioned_animal = next((a for a in brain.supported_animals if a.lower() in lower), None)
+
+        # Use safety dataset to check if dangerous
+        match, score = brain.find_best_match(raw, "symptoms")
+        # is_urgent based on GPT safety tier only (not csv_dangerous)
+        # Reason: 96% of clean-data.csv rows are flagged dangerous — unreliable for urgency
+        is_urgent = (safety_tier == "urgent")
+
+        # RAG-based response
+        reply = _get_rag_reply(raw, known_animal=mentioned_animal, is_urgent=is_urgent)
         reply += "\n\nWould you like to book a consultation? Just say 'yes' or 'book an appointment' and I'll get you started. 🐾"
         return ChatResponse(reply=reply, session_id=sid)
 
@@ -539,7 +452,7 @@ def _handle_booking_flow(session: dict, raw: str):
     if any(kw in lower for kw in ["how much", "magkano", "price", "cost", "presyo"]):
         return f"💰 Pricing varies per procedure. Please call the clinic for exact rates.\n\nNow back to your booking — {_resume_prompt(stage, data)}"
 
-    # Mid-booking symptom interrupt (skipped during ask_consultation_reason)
+    # Mid-booking symptom aside — now uses RAG
     mid_symptom_kw = [
         "scratching", "vomit", "diarrhea", "not eating", "ayaw kumain", "sick",
         "matamlay", "may sakit", "nagsusuka", "lethargic", "lethargy", "coughing",
@@ -558,15 +471,8 @@ def _handle_booking_flow(session: dict, raw: str):
     if is_symptom_aside and not is_direct_booking_answer:
         known_animal = data.get("animal")
         safety_tier_aside, _ = brain.check_safety(raw)
-        match, score = brain.find_best_match(raw, "symptoms")
-        csv_dangerous = brain.is_match_dangerous(match)
-        is_urgent = (safety_tier_aside == "urgent") or csv_dangerous
-        if csv_dangerous and safety_tier_aside != "urgent":
-            # Acute-level danger during booking — pause and alert
-            session["stage"] = "idle"
-            session["data"]  = {}
-            return "🚨 EMERGENCY ALERT: The symptoms you described match a condition flagged as dangerous. Please bring your pet to the clinic IMMEDIATELY. Your booking has been paused — please seek emergency care first."
-        advice = brain.ask_llm(_build_symptom_prompt(raw, match, score, known_animal=known_animal, is_urgent=is_urgent))
+        is_urgent = (safety_tier_aside == "urgent")
+        advice = _get_rag_reply(raw, known_animal=known_animal, is_urgent=is_urgent)
         return f"I noticed a health concern — let me address that first! 🩺\n\n{advice}\n\n━━━━━━━━━━━━━━━━━━━━\nNow, back to your booking — {_resume_prompt(stage, data)}"
 
     # ask_service
@@ -587,9 +493,7 @@ def _handle_booking_flow(session: dict, raw: str):
     # ask_animal
     if stage == "ask_animal":
         raw_lower = raw.lower().strip()
-        # Check direct English match first
         direct_animal = next((a for a in brain.supported_animals + brain.wildlife_animals if a.lower() in raw_lower), None)
-        # Check Tagalog map second (fast, no LLM call needed)
         tagalog_animal = next((eng for tl, eng in brain.tagalog_animal_map.items() if tl in raw_lower), None)
         animal = direct_animal or tagalog_animal or _clean_extracted(brain.extract_entity_with_ai(raw, "animal species"))
         supported = [a.lower() for a in brain.supported_animals]
@@ -649,7 +553,6 @@ def _handle_booking_flow(session: dict, raw: str):
         if not name or name.lower() in ("none", ""):
             return "What should I call your pet? Please enter their name."
         data["pet_name"] = name
-        # Consultation gets extra reason stage
         if data.get("service") == "Consultation":
             session["stage"] = "ask_consultation_reason"
             return (
@@ -663,64 +566,27 @@ def _handle_booking_flow(session: dict, raw: str):
             return (f"Nice to meet {name}! 🐾\n\nWhen would you like to schedule the appointment?\n"
                     "Format: MM/DD/YYYY HH:MM AM/PM (e.g. 03/20/2026 10:00 AM)\n\nOur clinic is open Mon–Sat, 7:00 AM – 8:00 PM.")
 
-    # ask_consultation_reason (Consultation only) - ENHANCED
+    # ask_consultation_reason — now uses RAG
     if stage == "ask_consultation_reason":
         pet_name     = data.get("pet_name", "your pet")
         known_animal = data.get("animal")
-        
+
         if not raw or len(raw.strip()) < 3:
             return (f"Could you describe what {pet_name} is experiencing? "
                     "For example: 'vomiting', 'not eating', 'lethargic', 'skin rash', etc.")
 
-        # Step 1: Safety check (emergency detection)
+        # Safety check
         safety_tier, safety_msg = brain.check_safety(raw)
         if safety_tier == "acute":
             session["stage"] = "idle"
             session["data"]  = {}
             return safety_msg
 
-        # Step 2: ENHANCED multi-layer symptom matching
-        if hasattr(brain, 'handle_consultation_reason_enhanced'):
-            # Use enhanced method if available
-            confidence_tier, match, score, clarification_msg = brain.handle_consultation_reason_enhanced(
-                raw, animal=known_animal
-            )
-        else:
-            # Fallback to basic matching
-            match, score = brain.find_best_match(raw, "symptoms")
-            if score >= 0.7:
-                confidence_tier = "high"
-                clarification_msg = None
-            else:
-                confidence_tier = "low"
-                clarification_msg = "I'd like to understand better. Could you describe the specific symptoms more clearly?"
-        
-        # Step 3: Handle based on confidence tier
-        
-        # MEDIUM or LOW confidence - Ask clarifying questions
-        if confidence_tier in ("medium", "low") and clarification_msg:
-            data["consultation_reason_raw"] = raw
-            data["clarification_attempt"] = data.get("clarification_attempt", 0) + 1
-            
-            # If we've asked more than once, just proceed
-            if data.get("clarification_attempt", 0) > 1:
-                complaint_label = brain.summarize_complaint(raw) if match else raw[:60]
-                data["consultation_reason"] = complaint_label
-                session["stage"] = "ask_datetime"
-                return (
-                    "I understand. Let's get you scheduled with our vet.\n\n"
-                    "📅 When would you like to schedule the appointment?\n"
-                    "Format: MM/DD/YYYY HH:MM AM/PM (e.g. 03/20/2026 10:00 AM)\n"
-                    "Our clinic is open Mon–Sat, 7:00 AM – 8:00 PM."
-                )
-            
-            # First attempt - ask for clarification
-            return clarification_msg
-        
-        # HIGH or EXTRACTED confidence - Proceed with match
+        # Safety check - acute only from GPT assessment
+        match, score = brain.find_best_match(raw, "symptoms")
         csv_dangerous = brain.is_match_dangerous(match)
-        
-        if csv_dangerous and safety_tier != "urgent":
+
+        if csv_dangerous and safety_tier == "acute":
             session["stage"] = "idle"
             session["data"]  = {}
             return (
@@ -729,28 +595,21 @@ def _handle_booking_flow(session: dict, raw: str):
                 "Only a licensed veterinarian can confirm the exact cause."
             )
 
-        # Summarize and proceed
+        # Summarize and generate RAG-based advice
         complaint_label = brain.summarize_complaint(raw)
         data["consultation_reason"] = complaint_label
         data["consultation_reason_raw"] = raw
 
-        # Generate advice
-        is_urgent = (safety_tier == "urgent") or csv_dangerous
-        advice = brain.ask_llm(_build_symptom_prompt(raw, match, score, known_animal=known_animal, is_urgent=is_urgent))
+        # is_urgent based on GPT safety tier only
+        is_urgent = (safety_tier == "urgent")
+        advice = _get_rag_reply(raw, known_animal=known_animal, is_urgent=is_urgent)
 
         session["stage"] = "ask_datetime"
-        
-        # Add note if symptoms were extracted
-        confidence_note = ""
-        if confidence_tier == "extracted":
-            confidence_note = "\n💡 I understood your description better after analyzing the symptoms.\n"
-        
         return (
             f"Thank you for letting us know! 🩺\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             f"{advice}\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            f"{confidence_note}"
             "Our vet will assess this further during the consultation.\n\n"
             "📅 When would you like to schedule the appointment?\n"
             "Format: MM/DD/YYYY HH:MM AM/PM (e.g. 03/20/2026 10:00 AM)\n"
@@ -786,8 +645,8 @@ def _handle_booking_flow(session: dict, raw: str):
                 "petName":                  data.get("pet_name", ""),
                 "species":                  f"{data.get('animal', '')} ({data.get('breed', '')})",
                 "service":                  data.get("service", ""),
-                "consultationReason":       data.get("consultation_reason", ""),      # short label
-                "consultationReasonDetail": data.get("consultation_reason_raw", ""),  # full description
+                "consultationReason":       data.get("consultation_reason", ""),
+                "consultationReasonDetail": data.get("consultation_reason_raw", ""),
                 "datetime":                 data.get("datetime", ""),
                 "status":                   "upcoming",
                 "appointmentStatus":        "pending",

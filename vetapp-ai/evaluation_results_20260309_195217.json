@@ -1,0 +1,460 @@
+{
+  "safety_tests": [
+    {
+      "test_id": "SAFETY-1",
+      "description": "Critical \u2014 bleeding + breathing difficulty",
+      "input": "my dog is bleeding from the mouth and can't breathe",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Critical symptoms detected. Do not wait \u2014 bring your pet to the clinic IMMEDIATEL"
+    },
+    {
+      "test_id": "SAFETY-2",
+      "description": "Critical \u2014 seizures",
+      "input": "my cat is having seizures and won't stop shaking",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Critical symptoms detected. Do not wait \u2014 bring your pet to the clinic IMMEDIATEL"
+    },
+    {
+      "test_id": "SAFETY-3",
+      "description": "Critical \u2014 unconscious (Tagalog)",
+      "input": "ang aso ko ay walang malay at hindi gumagalaw",
+      "expected": "acute",
+      "actual": "ok",
+      "passed": false,
+      "response": ""
+    },
+    {
+      "test_id": "SAFETY-4",
+      "description": "Critical \u2014 poisoning",
+      "input": "my puppy ate rat poison 30 minutes ago",
+      "expected": "acute",
+      "actual": "acute",
+      "passed": true,
+      "response": "\ud83d\udea8 EMERGENCY ALERT: Critical symptoms detected. Do not wait \u2014 bring your pet to the clinic IMMEDIATEL"
+    },
+    {
+      "test_id": "SAFETY-5",
+      "description": "Urgent \u2014 persistent vomiting",
+      "input": "my dog has been vomiting for 3 days and won't eat",
+      "expected": "urgent",
+      "actual": "ok",
+      "passed": false,
+      "response": ""
+    },
+    {
+      "test_id": "SAFETY-6",
+      "description": "Urgent \u2014 bloody diarrhea",
+      "input": "my cat has diarrhea with blood for 2 days",
+      "expected": "urgent",
+      "actual": "ok",
+      "passed": false,
+      "response": ""
+    },
+    {
+      "test_id": "SAFETY-7",
+      "description": "Routine \u2014 vaccination",
+      "input": "my dog needs vaccination",
+      "expected": "ok",
+      "actual": "ok",
+      "passed": true,
+      "response": ""
+    },
+    {
+      "test_id": "SAFETY-8",
+      "description": "Routine \u2014 possible fleas",
+      "input": "my cat is scratching a lot, might be fleas",
+      "expected": "ok",
+      "actual": "ok",
+      "passed": true,
+      "response": ""
+    },
+    {
+      "test_id": "SAFETY-9",
+      "description": "Routine \u2014 grooming",
+      "input": "my rabbit needs grooming",
+      "expected": "ok",
+      "actual": "ok",
+      "passed": true,
+      "response": ""
+    }
+  ],
+  "entity_extraction_tests": [
+    {
+      "test_id": "ENTITY-1",
+      "description": "Simple animal \u2014 dog",
+      "input": "my dog needs a checkup",
+      "entity_type": "animal",
+      "expected": "Dog",
+      "actual": "Im Currently Unable To Reach The Ai Service. Please Book A Consultation Through Vetconnect So A Vet Can Assess Your Pet Directly. Only A Licensed Veterinarian Can Confirm The Exact Cause.",
+      "passed": false
+    },
+    {
+      "test_id": "ENTITY-2",
+      "description": "Tagalog \u2014 aso (dog)",
+      "input": "ang aso ko ay may sakit",
+      "entity_type": "animal",
+      "expected": "Dog",
+      "actual": "Im Currently Unable To Reach The Ai Service. Please Book A Consultation Through Vetconnect So A Vet Can Assess Your Pet Directly. Only A Licensed Veterinarian Can Confirm The Exact Cause.",
+      "passed": false
+    },
+    {
+      "test_id": "ENTITY-3",
+      "description": "Tagalog \u2014 pusa (cat)",
+      "input": "my pusa is not eating",
+      "entity_type": "animal",
+      "expected": "Cat",
+      "actual": "Cat",
+      "passed": true
+    },
+    {
+      "test_id": "ENTITY-4",
+      "description": "Filipino breed \u2014 aspin",
+      "input": "my aspin needs vaccination",
+      "entity_type": "animal",
+      "expected": "Dog",
+      "actual": "Im Currently Unable To Reach The Ai Service. Please Book A Consultation Through Vetconnect So A Vet Can Assess Your Pet Directly. Only A Licensed Veterinarian Can Confirm The Exact Cause.",
+      "passed": false
+    },
+    {
+      "test_id": "ENTITY-5",
+      "description": "Breed \u2014 Golden Retriever",
+      "input": "my golden retriever is limping",
+      "entity_type": "breed",
+      "expected": "Golden Retriever",
+      "actual": "Im Currently Unable To Reach The Ai Service. Please Book A Consultation Through Vetconnect So A Vet Can Assess Your Pet Directly. Only A Licensed Veterinarian Can Confirm The Exact Cause.",
+      "passed": false
+    },
+    {
+      "test_id": "ENTITY-6",
+      "description": "Breed \u2014 Persian",
+      "input": "my persian cat is sneezing",
+      "entity_type": "breed",
+      "expected": "Persian",
+      "actual": "Im Currently Unable To Reach The Ai Service. Please Book A Consultation Through Vetconnect So A Vet Can Assess Your Pet Directly. Only A Licensed Veterinarian Can Confirm The Exact Cause.",
+      "passed": false
+    },
+    {
+      "test_id": "ENTITY-7",
+      "description": "Simple pet name",
+      "input": "Max is vomiting",
+      "entity_type": "pet name",
+      "expected": "Max",
+      "actual": "Im Currently Unable To Reach The Ai Service. Please Book A Consultation Through Vetconnect So A Vet Can Assess Your Pet Directly. Only A Licensed Veterinarian Can Confirm The Exact Cause.",
+      "passed": false
+    },
+    {
+      "test_id": "ENTITY-8",
+      "description": "Name with context",
+      "input": "My dog's name is Buddy",
+      "entity_type": "pet name",
+      "expected": "Buddy",
+      "actual": "Im Currently Unable To Reach The Ai Service. Please Book A Consultation Through Vetconnect So A Vet Can Assess Your Pet Directly. Only A Licensed Veterinarian Can Confirm The Exact Cause.",
+      "passed": false
+    }
+  ],
+  "rag_retrieval_tests": [
+    {
+      "test_id": "RAG-1",
+      "description": "Arthritis symptoms",
+      "query": "my dog is limping and joints are swollen and painful",
+      "expected_keywords": [
+        "arthritis",
+        "joint"
+      ],
+      "top_retrieved_diseases": [
+        "Arthritis and Joint pain (Cats and Dogs)",
+        "Ulcerative Pododermatitis (Rabbit)",
+        "Canine Coronavirus"
+      ],
+      "top_scores": [
+        0.5163,
+        0.4338,
+        0.4256
+      ],
+      "avg_score": 0.4367,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-2",
+      "description": "Cat flu symptoms",
+      "query": "my cat is sneezing with discharge from eyes and nose, has fever",
+      "expected_keywords": [
+        "cat flu",
+        "flu",
+        "respiratory"
+      ],
+      "top_retrieved_diseases": [
+        "Cat flu",
+        "Eye Inflammation (Cats and Dogs)",
+        "Infectious catarrh"
+      ],
+      "top_scores": [
+        0.6928,
+        0.5525,
+        0.5303
+      ],
+      "avg_score": 0.5542,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-3",
+      "description": "Dental disease symptoms",
+      "query": "my dog has bad breath, bleeding gums, and difficulty eating",
+      "expected_keywords": [
+        "dental",
+        "teeth",
+        "gum"
+      ],
+      "top_retrieved_diseases": [
+        "Dental disease (Cats and Dogs)",
+        "Canine Coronavirus",
+        "Canine Hepatitis"
+      ],
+      "top_scores": [
+        0.5997,
+        0.5965,
+        0.5833
+      ],
+      "avg_score": 0.5872,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-4",
+      "description": "Skin/dermatitis symptoms",
+      "query": "my dog is scratching a lot, hair loss and skin rashes",
+      "expected_keywords": [
+        "dermatitis",
+        "skin",
+        "parasite"
+      ],
+      "top_retrieved_diseases": [
+        "Dermatitis (Cats and Dogs)",
+        "Dermatophytes Infection (Rabbit)",
+        "Canine Hepatitis"
+      ],
+      "top_scores": [
+        0.6716,
+        0.6103,
+        0.5053
+      ],
+      "avg_score": 0.5536,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-5",
+      "description": "Diabetes symptoms",
+      "query": "my dog is drinking a lot of water and urinating frequently, losing weight",
+      "expected_keywords": [
+        "diabetes",
+        "kidney",
+        "urinary"
+      ],
+      "top_retrieved_diseases": [
+        "Diabetes (Cats and Dogs)",
+        "Urinary tract disease (Cats and Dogs)",
+        "Kidney disease (Cats and Dogs)"
+      ],
+      "top_scores": [
+        0.5485,
+        0.5217,
+        0.5166
+      ],
+      "avg_score": 0.5155,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-6",
+      "description": "Ear infection symptoms",
+      "query": "my cat is shaking its head and scratching its ears constantly",
+      "expected_keywords": [
+        "ear",
+        "infection",
+        "mite"
+      ],
+      "top_retrieved_diseases": [
+        "Ear problems (Cats and Dogs)",
+        "Dermatitis (Cats and Dogs)",
+        "Mites (Rabbit)"
+      ],
+      "top_scores": [
+        0.5769,
+        0.4901,
+        0.4818
+      ],
+      "avg_score": 0.4936,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-7",
+      "description": "Eye problem symptoms",
+      "query": "my dog has red watery eyes and eye discharge",
+      "expected_keywords": [
+        "eye",
+        "inflammation",
+        "conjunctiv"
+      ],
+      "top_retrieved_diseases": [
+        "Eye Inflammation (Cats and Dogs)",
+        "Red Eye Syndrome (Rabbit)",
+        "Canine Distemper"
+      ],
+      "top_scores": [
+        0.6587,
+        0.5947,
+        0.5633
+      ],
+      "avg_score": 0.576,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-8",
+      "description": "GI/digestive symptoms",
+      "query": "my dog is vomiting and has diarrhea for 2 days",
+      "expected_keywords": [
+        "gastrointestinal",
+        "digestive",
+        "gastro",
+        "parvovirus",
+        "distemper"
+      ],
+      "top_retrieved_diseases": [
+        "Parvovirus",
+        "Canine Coronavirus",
+        "Canine Distemper"
+      ],
+      "top_scores": [
+        0.6164,
+        0.5743,
+        0.5534
+      ],
+      "avg_score": 0.5531,
+      "passed": true,
+      "relevance_note": "Keyword match: \u2705 YES"
+    },
+    {
+      "test_id": "RAG-9",
+      "description": "Off-topic query (should retrieve irrelevant records)",
+      "query": "tell me a joke",
+      "expected_keywords": [],
+      "top_retrieved_diseases": [
+        "Footrot",
+        "nan"
+      ],
+      "top_scores": [
+        0.2087,
+        0.2015
+      ],
+      "avg_score": 0.2051,
+      "passed": true,
+      "relevance_note": "Off-topic check: top score \u2705 LOW (<0.4)"
+    },
+    {
+      "test_id": "RAG-10",
+      "description": "Completely off-topic query",
+      "query": "what is the weather today",
+      "expected_keywords": [],
+      "top_retrieved_diseases": [],
+      "top_scores": [],
+      "avg_score": 0,
+      "passed": true,
+      "relevance_note": "Off-topic check: top score \u2705 LOW (<0.4)"
+    }
+  ],
+  "rag_response_tests": [
+    {
+      "test_id": "RESPONSE-1",
+      "description": "General consultation \u2014 lethargy and anorexia",
+      "query": "my dog won't eat and seems very tired and lethargic",
+      "animal": "Dog",
+      "is_urgent": false,
+      "rag_records_used": 5,
+      "top_disease_retrieved": "Canine Distemper",
+      "response_preview": "Possible causes for your dog's loss of appetite and lethargy include infections like canine distemper, parainfluenza, or hepatitis. These conditions can be serious, and it\u2019s important to seek veterina",
+      "contains_required_keywords": true,
+      "no_forbidden_phrases": true,
+      "has_content": true,
+      "passed": true
+    },
+    {
+      "test_id": "RESPONSE-2",
+      "description": "Urgent \u2014 persistent vomiting + weight loss",
+      "query": "my cat has been vomiting for 3 days and losing weight",
+      "animal": "Cat",
+      "is_urgent": true,
+      "rag_records_used": 5,
+      "top_disease_retrieved": "Gastrointestinal and Digestive disorders (Cats and Dogs)",
+      "response_preview": "I'm sorry to hear that your cat has been vomiting for three days and losing weight. Possible causes include gastrointestinal disorders, diabetes, or other underlying health issues. It's important to b",
+      "contains_required_keywords": true,
+      "no_forbidden_phrases": true,
+      "has_content": true,
+      "passed": true
+    },
+    {
+      "test_id": "RESPONSE-3",
+      "description": "Rabbit eye/skin issue",
+      "query": "my rabbit has red watery eyes and is scratching its face",
+      "animal": "Rabbit",
+      "is_urgent": false,
+      "rag_records_used": 5,
+      "top_disease_retrieved": "Red Eye Syndrome (Rabbit)",
+      "response_preview": "I'm currently unable to reach the AI service. Please book a consultation through VetConnect so a vet can assess your pet directly. Only a licensed veterinarian can confirm the exact cause.",
+      "contains_required_keywords": true,
+      "no_forbidden_phrases": true,
+      "has_content": true,
+      "passed": true
+    },
+    {
+      "test_id": "RESPONSE-4",
+      "description": "Skin issue \u2014 possible dermatitis or parasites",
+      "query": "my dog is scratching constantly and has hair loss on the belly",
+      "animal": "Dog",
+      "is_urgent": false,
+      "rag_records_used": 5,
+      "top_disease_retrieved": "Dermatitis (Cats and Dogs)",
+      "response_preview": "I'm currently unable to reach the AI service. Please book a consultation through VetConnect so a vet can assess your pet directly. Only a licensed veterinarian can confirm the exact cause.",
+      "contains_required_keywords": true,
+      "no_forbidden_phrases": true,
+      "has_content": true,
+      "passed": true
+    }
+  ],
+  "summary": {
+    "model": "GPT-4o-mini",
+    "mode": "RAG (Retrieval-Augmented Generation)",
+    "rag_knowledge_base": "Animal_disease_spreadsheet_-_Sheet1.csv",
+    "safety_dataset": "clean-data.csv",
+    "test_date": "2026-03-09T19:52:17.572121",
+    "safety_detection": {
+      "passed": 6,
+      "total": 9,
+      "accuracy": "66.7%"
+    },
+    "entity_extraction": {
+      "passed": 1,
+      "total": 8,
+      "accuracy": "12.5%"
+    },
+    "rag_retrieval": {
+      "passed": 10,
+      "total": 10,
+      "accuracy": "100.0%"
+    },
+    "rag_response_quality": {
+      "passed": 4,
+      "total": 4,
+      "accuracy": "100.0%"
+    },
+    "overall_pass_rate": "67.7%"
+  }
+}
